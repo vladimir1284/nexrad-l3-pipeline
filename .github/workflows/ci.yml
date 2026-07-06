@@ -17,9 +17,29 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    env:
+      # MinIO local como R2 para los tests de integración S3.
+      R2_ENDPOINT: http://localhost:9000
+      R2_BUCKET: nexrad-test
+      R2_ACCESS_KEY_ID: minioadmin
+      R2_SECRET_ACCESS_KEY: minioadmin
+      # D1 de test (base nexrad-l3-test). Si los secrets no existen (forks),
+      # las variables quedan vacías y esos tests se saltan solos.
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      D1_DATABASE_ID: ${{ secrets.D1_TEST_DATABASE_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      - name: Arrancar MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            quay.io/minio/minio server /data
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live && break
+            sleep 1
+          done
       - run: uv sync --locked
       - run: uv run pytest
 

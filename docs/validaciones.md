@@ -33,7 +33,7 @@ En QGIS:
 2. Crear la base D1: `wrangler d1 create nexrad-l3`. Guardar el `database_id`.
 3. Aplicar migraciones: `wrangler d1 migrations apply nexrad-l3 --remote` (las migraciones viven en `db/migrations/`; ver `db/README.md`).
 4. Crear un **API token de cuenta** con permiso *D1 — Edit* → `CLOUDFLARE_API_TOKEN`.
-5. Para el test de integración D1 en CI: añadir en GitHub los secrets `CLOUDFLARE_ACCOUNT_ID`, `D1_DATABASE_ID`, `CLOUDFLARE_API_TOKEN` (la D1 de test puede ser la misma base con otra… no: **crear una segunda base `nexrad-l3-test`** para que CI no ensucie la real).
+5. Para el test de integración D1 en CI: **crear una segunda base `nexrad-l3-test`** (para que CI no ensucie la real), aplicarle las mismas migraciones, y añadir en GitHub los secrets `D1_TEST_DATABASE_ID` y `CLOUDFLARE_D1_API_TOKEN` (token con *D1 — Edit*; nombre distinto del `CLOUDFLARE_API_TOKEN` de Pages, que solo tiene permiso de deploy). `CLOUDFLARE_ACCOUNT_ID` ya existe del setup de docs. Sin estos secrets, los tests de integración D1 se saltan solos (CI sigue verde).
 
 ### Verificación de la puerta
 

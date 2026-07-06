@@ -5,6 +5,8 @@ description = "Ingesta NEXRAD Level III (IDD/NNEXRAD) → COG calibrados en R2 +
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "boto3>=1.43.40",
+    "httpx>=0.28.1",
     "metpy>=1.7.1",
     "numpy>=2.5.1",
     "pyproj>=3.7.2",
@@ -46,3 +48,6 @@ select = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "integration: tests contra servicios reales (MinIO/R2, D1); se saltan sin credenciales en el entorno",
+]

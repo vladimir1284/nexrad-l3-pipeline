@@ -30,6 +30,24 @@ def _cmd_process(args: argparse.Namespace) -> int:
     out = out_dir / f"{prod.site_id}_{prod.spec.mnemonic}_{stamp}.tif"
     write_cog(grid, prod, out)
     print(out)
+
+    if args.publish:
+        from ingest.config import ConfigError, StorageConfig
+        from ingest.storage.d1 import D1Client
+        from ingest.storage.publish import publish_cog
+        from ingest.storage.r2 import R2Client
+
+        try:
+            cfg = StorageConfig.from_env()
+        except ConfigError as exc:
+            print(f"l3proc: {exc}", file=sys.stderr)
+            return 3
+        r2 = R2Client(
+            cfg.r2_endpoint, cfg.r2_bucket, cfg.r2_access_key_id, cfg.r2_secret_access_key
+        )
+        with D1Client(cfg.cf_account_id, cfg.d1_database_id, cfg.cf_api_token) as d1:
+            result = publish_cog(out, prod, grid, r2, d1)
+        print(f"r2://{cfg.r2_bucket}/{result.r2_key} ({result.size_bytes} bytes)")
     return 0
 
 
@@ -49,6 +67,11 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=None,
         help="directorio de salida (por defecto, el del fichero de entrada)",
+    )
+    p_process.add_argument(
+        "--publish",
+        action="store_true",
+        help="subir el COG a R2 y registrar metadata en D1 (config por entorno)",
     )
     p_process.set_defaults(func=_cmd_process)
 
