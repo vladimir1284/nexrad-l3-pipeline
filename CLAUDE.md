@@ -8,7 +8,7 @@ Proyecto greenfield: por ahora solo existe README.md (el documento de diseño). 
 
 ## Qué es
 
-Pipeline **headless** de ingesta de productos NEXRAD Level III desde el feed IDD de NSF Unidata (feedtype `NNEXRAD`). Genera COGs (Cloud-Optimized GeoTIFF) calibrados en proyección AEQD centrada en cada radar y los sube a Cloudflare R2; metadatos, fenómenos (granizo, mesociclones, TVS, tracking de celdas) y perfiles VWP van a Cloudflare D1. Este proyecto **no renderiza ni visualiza nada** — el consumidor es LAMULA-WebViewer (proyecto aparte, OpenLayers), que lee los COG por HTTP range requests y consulta D1 vía Worker.
+Pipeline **headless** de ingesta de productos NEXRAD Level III desde el feed IDD de NSF Unidata (feedtype `NNEXRAD`). Genera COGs (Cloud-Optimized GeoTIFF) calibrados en proyección AEQD centrada en cada radar y los sube a Cloudflare R2; metadatos, fenómenos (granizo, mesociclones, TVS, tracking de celdas) y perfiles VWP van a Cloudflare D1. Este proyecto **no renderiza ni visualiza nada** — el consumidor es LAMULA-WebViewer (proyecto aparte, OpenLayers), que lee los COG por HTTP range requests y consulta D1 vía binding interno de su Worker (asunto del viewer; el contrato con él es solo el schema en `db/`).
 
 Es el hermano "cloud/demo" de **LAMULA-Ingest**: misma lógica de decodificación NEXRAD (bloques PDB / Symbology / Tabular), distinta fuente (LDM/IDD en vez de nbtcp desde ORPG) y distinto destino (R2 + D1 en vez de FTP + PostgreSQL).
 
@@ -24,22 +24,17 @@ Es el hermano "cloud/demo" de **LAMULA-Ingest**: misma lógica de decodificació
 - **Un solo artefacto raster: COG calibrado en AEQD centrada en el radar.** Nada de PNGs. Paleta y reproyección se aplican en el cliente (GPU). Cambiar paleta/umbrales no regenera nada. AEQD: parámetros derivan de la posición del radar (sin paralelos que definir), mínima distorsión al resamplear polar. Sin EPSG — el viewer registra la definición proj4 por radar.
 - **MetPy como decodificador base** (radial/raster). Grillado con pyproj, escritura con Rasterio (driver COG). Parsing de fenómenos y VWP sobre Symbology/Tabular es propio — MetPy solo expone los bloques crudos.
 - **Resampleo nearest neighbor**, no bilinear — datos calibrados con umbrales, interpolación suave inventa valores.
+- **Malla AEQD por producto: celda = gate nativo, extensión = rango nativo.** Sin grilla común por radar. Peor caso N0B: 3680×3680 @ 0.25 km (bajo cap textura WebGL 4096). Ver tabla de geometrías en README.
+- **uv para paquetes y entornos Python** — no pip/venv/poetry directos. Aplica a Dockerfile y desarrollo local.
 - **Entrega pqact → procesador: FILE + watcher, no PIPE.** Import de MetPy/Rasterio (~1–2 s) hace inviable proceso-por-producto; PIPE persistente concatena binarios sin framing. Fichero en disco = tolerancia a fallos + replay de crudos en desarrollo. Procesados se borran tras subir; fallidos quedan para reproceso.
 - **pqact: un solo patrón ancho.** Una regla captura todos los mnemónicos × sitios hacia un directorio; el procesador discrimina por nombre de fichero. El filtro fino (qué productos bajan) vive en el `request` de `ldmd.conf` — no duplicar la lista de productos en `pqact.conf`.
 - **D1, no PostgreSQL/ClickHouse** — escala de demo (miles de filas). Schema diseñado para ser migrable a PostgreSQL si pasa a producción.
-- **Decodificación independiente del transporte** — el parsing propio de fenómenos/Tabular es el candidato a compartir con LAMULA-Ingest (nbtcp).
-- **Retención por ventana temporal** (propuesta 24–72 h): sweep que borra filas D1 + objetos R2 fuera de ventana, con reconciliación de huérfanos en ambas direcciones. R2 lifecycle rules como red de seguridad.
+- **Decodificación independiente del transporte.** Los aspectos comunes con LAMULA-Ingest (parsing de fenómenos/Tabular, tipos de dominio NEXRAD) van en **paquete Python compartido**, no copia.
+- **Elevación única: 0.5°** (`N0B`, `N0G`). Cortes superiores del volumen se ignoran; los derivados de volumen (EET, DVL, precip) no tienen elevación que elegir.
+- **Retención: 3 días (72 h), configurable.** Sweep que borra filas D1 + objetos R2 fuera de ventana, con reconciliación de huérfanos en ambas direcciones. R2 lifecycle rules como red de seguridad.
 
 ## Alcance del demo
 
 - Sitios: 2–4 radares **configurables** (propuesta: `KAMX`, `KBYX`, `TJUA`). Lista en config, nunca hardcodeada.
-- Productos: reflectividad (19, 20, 94), velocidad (27, 99), echo tops (41), VIL (57), precipitación (78, 79, 80), VAD/VWP (48), fenómenos desde Symbology/Tabular.
-
-## Pendiente de definir (decisiones abiertas — preguntar antes de asumir)
-
-- Resolución de malla AEQD y extensión (radio 230 vs 460 km según producto).
-- Tabla código→mnemónico definitiva para el `request` de `ldmd.conf` (legacy vs digital para 94/99: N0Q/N0B, N0U/N0G según build del ORPG) — verificar contra tabla NWS vigente.
-- Ventana de retención exacta.
-- Acceso del viewer a D1: Worker REST vs binding directo.
-- Parsing de fenómenos/Tabular compartido con LAMULA-Ingest: paquete compartido vs copia.
-- Cobertura real de MetPy por código de producto (verificar 19/20/94/27/99/41/57/78/79/80/48 contra `Level3File`).
+- Productos (**códigos legacy 19/20/27/41/78/79/80/94 retirados del feed** — verificado 2026-07-04; el 99 solo fluye en cortes altos, fuera de alcance por la decisión de elevación única): reflectividad super-res (153/`N0B`), velocidad super-res (154/`N0G`), echo tops (135/`EET`), VIL digital (134/`DVL`), precipitación 1h/3h/storm-total (170/`DAA`, 173/`DU3`, 172/`DTA`), VAD/VWP (48/`NVW`), fenómenos: meso (141/`NMD`), tracking (58/`NST`), granizo (59/`NHI`), TVS (61/`NTV`) — `NHI`/`NTV` episódicos. Geometrías nativas en tabla del README. MetPy 1.7.1 decodifica todos (verificado con muestras reales).
+- Muestras para dev/tests/replay sin LDM: bucket S3 público `unidata-nexrad-level3`, claves `SITE_MNEMO_YYYY_MM_DD_HH_MM_SS` (sitio sin prefijo K/T), acceso anónimo (botocore `UNSIGNED`).
