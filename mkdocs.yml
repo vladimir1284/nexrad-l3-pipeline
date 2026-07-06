@@ -1,0 +1,40 @@
+site_name: nexrad-l3-pipeline
+site_description: Pipeline de ingesta NEXRAD Level III — IDD → COG en R2 + D1
+repo_url: https://github.com/vladimir1284/nexrad-l3-pipeline
+repo_name: vladimir1284/nexrad-l3-pipeline
+
+theme:
+  name: material
+  language: es
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      toggle:
+        icon: material/weather-night
+        name: Modo oscuro
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue grey
+      toggle:
+        icon: material/weather-sunny
+        name: Modo claro
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - tables
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - toc:
+      permalink: true
+
+nav:
+  - Inicio: index.md
+  - Arquitectura: arquitectura.md
+  - Decisiones de diseño: decisiones.md
+  - Productos: productos.md
+  - Plan de implementación: plan-implementacion.md

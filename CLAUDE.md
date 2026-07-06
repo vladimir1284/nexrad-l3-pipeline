@@ -4,7 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Estado del repo
 
-Proyecto greenfield: por ahora solo existe README.md (el documento de diseño). No hay código, ni docker-compose, ni comandos de build/test todavía. Al implementar, seguir la estructura de carpetas propuesta en el README (`ldm/`, `ingest/` con subpaquetes `decoder/`, `gridding/`, `phenomena/`, `storage/`, `retention/`, y `db/`).
+Fase de diseño cerrada; implementación no arrancada (sin código Python todavía). Existe: README (diseño resumido), documentación MkDocs en `docs/` (fuente de verdad extendida, incluye el plan de implementación por fases con puertas de validación), y workflow de deploy de docs. Al implementar, seguir la estructura de carpetas del README (`ldm/`, `ingest/` con subpaquetes `decoder/`, `gridding/`, `phenomena/`, `storage/`, `retention/`, y `db/`) y las fases de `docs/plan-implementacion.md`.
+
+## Comandos
+
+```bash
+uvx --with mkdocs-material mkdocs serve            # preview docs en :8000
+uvx --with mkdocs-material mkdocs build --strict   # build docs (lo que corre CI)
+```
+
+Docs se despliegan solos a Cloudflare Pages (proyecto `nexrad-l3-docs`) al tocar `docs/**` o `mkdocs.yml` en `main` (`.github/workflows/docs.yml`, requiere secrets `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` en GitHub).
+
+## Despliegue
+
+Docker Swarm de **nodo único** del usuario, vía `docker stack deploy`. Imágenes desde `ghcr.io` (CI construye, Swarm hace pull). Credenciales R2/D1 como Docker secrets. Alertas operativas por Telegram (bot existente del usuario). Detalle en `docs/plan-implementacion.md`.
 
 ## Qué es
 

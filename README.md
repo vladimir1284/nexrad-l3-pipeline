@@ -4,6 +4,8 @@ Pipeline de ingesta de productos NEXRAD Level III desde el feed IDD de NSF Unida
 
 **Propósito:** montar un demo de nuestro visualizador web de productos de radar. El visualizador (proyecto aparte, basado en OpenLayers) consume directamente los COG desde R2 y consulta D1; este proyecto no renderiza ni visualiza nada — es headless.
 
+**Documentación completa** (arquitectura, decisiones, productos, plan de implementación): MkDocs en `docs/`, desplegada automáticamente a Cloudflare Pages. Preview local: `uvx --with mkdocs-material mkdocs serve`.
+
 Es el hermano "cloud/demo" de **LAMULA-Ingest**: misma lógica de dominio NEXRAD (decodificación de bloques PDB / Symbology / Tabular, extracción de fenómenos), pero cambia la fuente (LDM/IDD en vez de nbtcp desde un ORPG) y el destino (R2 + D1 en vez de FTP + PostgreSQL).
 
 ## Arquitectura

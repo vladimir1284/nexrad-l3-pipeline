@@ -1,0 +1,12 @@
+# mkdocs
+site/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+uv.lock.tmp
+
+# entornos y datos locales
+.env
+data/
