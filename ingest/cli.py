@@ -5,8 +5,11 @@ AEQD y escribe el COG. F2 añade publicación a R2/D1.
 """
 
 import argparse
+import logging
+import signal
 import sys
 from pathlib import Path
+from threading import Event
 
 from ingest import __version__
 
@@ -51,7 +54,43 @@ def _cmd_process(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_watch(args: argparse.Namespace) -> int:
+    from ingest.config import ConfigError
+    from ingest.watcher import ProductProcessor, build_publisher, run_watcher
+
+    if args.no_publish:
+        processor = ProductProcessor(output_dir=args.output_dir or args.dir / "cogs")
+    else:
+        try:
+            processor = ProductProcessor(publisher=build_publisher())
+        except ConfigError as exc:
+            print(f"l3proc: {exc}", file=sys.stderr)
+            return 3
+
+    stop = Event()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda *_: stop.set())
+
+    heartbeat = args.heartbeat if args.heartbeat else args.dir / ".heartbeat"
+    stats = run_watcher(args.dir, processor, heartbeat=heartbeat, once=args.once, stop=stop)
+    print(f"procesados={stats.processed} fallidos={stats.failed}")
+    return 0 if stats.failed == 0 else 1
+
+
+def _cmd_replay(args: argparse.Namespace) -> int:
+    from ingest.products import RASTER_PRODUCTS
+    from ingest.replay import inject
+
+    mnemonics = args.product or [spec.mnemonic for spec in RASTER_PRODUCTS.values()]
+    injected = inject(args.dir, args.site, mnemonics, args.count)
+    print(f"inyectados={len(injected)}")
+    return 0 if injected else 1
+
+
 def main(argv: list[str] | None = None) -> int:
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
     parser = argparse.ArgumentParser(
         prog="l3proc",
         description="Procesador de productos NEXRAD Level III",
@@ -75,8 +114,56 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_process.set_defaults(func=_cmd_process)
 
+    p_watch = sub.add_parser("watch", help="servicio: vigila el directorio de entrada")
+    p_watch.add_argument("dir", type=Path, help="directorio de entrada (pqact FILE)")
+    p_watch.add_argument(
+        "--once", action="store_true", help="procesar el backlog y salir (sin inotify)"
+    )
+    p_watch.add_argument(
+        "--no-publish",
+        action="store_true",
+        help="no publicar: conservar los COG en --output-dir (dev)",
+    )
+    p_watch.add_argument(
+        "-o",
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="directorio de COGs con --no-publish (por defecto <dir>/cogs)",
+    )
+    p_watch.add_argument(
+        "--heartbeat",
+        type=Path,
+        default=None,
+        help="fichero de heartbeat (por defecto <dir>/.heartbeat)",
+    )
+    p_watch.set_defaults(func=_cmd_watch)
+
+    p_replay = sub.add_parser("replay", help="inyecta productos recientes del bucket público")
+    p_replay.add_argument("dir", type=Path, help="directorio de entrada del watcher")
+    p_replay.add_argument(
+        "--site",
+        action="append",
+        required=True,
+        help="sitio sin prefijo K/T (AMX, JUA…); repetible",
+    )
+    p_replay.add_argument(
+        "--product",
+        action="append",
+        default=None,
+        help="mnemónico (N0B…); repetible; por defecto todos los registrados",
+    )
+    p_replay.add_argument(
+        "-n", "--count", type=int, default=5, help="productos por sitio×producto (def. 5)"
+    )
+    p_replay.set_defaults(func=_cmd_replay)
+
     args = parser.parse_args(argv)
     if not hasattr(args, "func"):
         parser.print_help()
         return 0
     return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
