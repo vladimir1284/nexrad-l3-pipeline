@@ -35,7 +35,7 @@ NSF Unidata IDD (feedtype NNEXRAD, Level III vía NOAAPort)
 
 ### Componentes
 
-1. **Contenedor LDM (Unidata Local Data Manager).** Se conecta al IDD con un `request` del feedtype `NNEXRAD` filtrado por sitios y productos. `pqact` entrega cada producto al procesador Python (PIPE o FILE + watcher). Configuración en `ldm/` (`ldmd.conf`, `pqact.conf`, `registry.xml`).
+1. **Contenedor LDM (Unidata Local Data Manager).** Se conecta al IDD con un `request` del feedtype `NNEXRAD` filtrado por sitios y productos. `pqact` escribe cada producto como fichero en un directorio de entrada (`FILE`); el procesador es un servicio persistente que lo consume vía watcher (inotify/watchdog). Configuración en `ldm/` (`ldmd.conf`, `pqact.conf`, `registry.xml`).
 2. **Procesador Python 3.12.** Decodifica el producto Level III con **MetPy** (`Level3File`: cabecera WMO + bloques NEXRAD, paquetes radiales y raster), grilla los datos a una malla regular en proyección **AEQD centrada en el radar** (resampleo *nearest neighbor* para preservar valores calibrados), escribe el **COG calibrado** con Rasterio (valores físicos escalados, CRS + geotransform embebidos, overviews internos) y lo sube a R2. Los fenómenos (Symbology/Tabular) y VWP requieren parsing propio sobre los bloques que MetPy expone crudos; esos productos no-raster y la metadata de cada raster van a D1.
 3. **Cloudflare R2.** Almacén de COGs. Sirve al viewer con CORS + HTTP range requests (el cliente solo descarga los tiles/overviews que necesita). Convención de paths propuesta: `{site}/{product_code}/{YYYY}/{MM}/{DD}/{site}_{product_code}_{YYYYMMDD_HHMMSS}.tif`.
 4. **Cloudflare D1.** Base SQLite serverless (tier gratuito, misma cuenta que R2). Tablas: catálogo de radares (poblado dinámicamente desde la metadata entrante, sin radares hardcodeados), descriptores de producto, metadata de rasters (clave R2, timestamps, VCP, elevación, min/max, proyección), fenómenos (granizo, mesociclones, TVS, tracking de celdas) y perfiles VWP. El acceso del viewer es vía Worker/REST de Cloudflare.
@@ -46,6 +46,8 @@ NSF Unidata IDD (feedtype NNEXRAD, Level III vía NOAAPort)
 - **MetPy como decodificador base.** `Level3File` (Unidata, misma casa que LDM/IDD) decodifica cabeceras y paquetes radiales/raster; el grillado y la escritura COG usan pyproj + Rasterio. El parsing de fenómenos (granizo, meso, TVS, celdas) y VWP sobre Symbology/Tabular es propio, construido sobre los bloques que MetPy expone.
 - **D1 en vez de PostgreSQL/ClickHouse.** Escala de demo (subset de radares → miles de filas, no millones). Tier gratuito, integrado con R2. Si el proyecto pasa a producción, el schema es migrable a PostgreSQL plano (contrato tipo LAMULA-Ingest).
 - **LDM como transporte, no nbtcp.** La fuente es el IDD público de Unidata, no un ORPG propio. La capa de decodificación se mantiene independiente del transporte; el parsing propio de fenómenos/Tabular es el candidato a compartir con LAMULA-Ingest.
+- **Entrega pqact → procesador: FILE + watcher, no PIPE.** pqact escribe el producto crudo a disco y un servicio Python persistente lo consume (inotify/watchdog). Motivos: el import de MetPy/Rasterio (~1–2 s) hace inviable un proceso por producto (PIPE `-close`); el PIPE persistente concatena binarios sin framing (frágil); el fichero en disco da tolerancia a fallos, reintento y replay de crudos durante desarrollo. Los ficheros procesados se borran tras subir a R2/D1; los fallidos quedan para reproceso.
+- **pqact: un solo patrón ancho, no una entrada por producto.** Una única regla captura todos los mnemónicos × sitios del alcance hacia un mismo directorio; el procesador discrimina por nombre de fichero (grupos capturados: sitio, mnemónico, timestamp). La selección fina de qué baja del IDD vive en el `request` de `ldmd.conf` (mismo dialecto de patrón), que es donde ahorra ancho de banda; duplicar la lista de productos en `pqact.conf` sería mantenimiento doble.
 - **Rotación temporal.** Ventana de retención configurable: sweep periódico que borra filas D1 y objetos R2 fuera de ventana, con pase de reconciliación (huérfanos en R2 sin fila / filas apuntando a objeto inexistente). R2 lifecycle rules como red de seguridad.
 
 ## Alcance del demo
@@ -83,7 +85,7 @@ nexrad-l3-pipeline/
 ## Pendiente de definir
 
 - Resolución de la malla AEQD y extensión (radio de cobertura por producto: 230 vs 460 km).
-- Patrones `pqact` definitivos por cabecera WMO (`SDUS[2357]x .... /pXXXyyy`).
+- Tabla código→mnemónico definitiva para el `request` de `ldmd.conf` (legacy vs digital para 94/99: N0Q/N0B, N0U/N0G según build del ORPG) — verificar contra tabla NWS vigente.
 - Ventana de retención del demo (propuesta: 24–72 h).
 - Mecanismo de acceso del viewer a D1 (Worker REST vs binding directo).
 - Reutilización del parsing de fenómenos/Tabular con LAMULA-Ingest (paquete compartido vs copia).
