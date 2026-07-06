@@ -2,9 +2,19 @@
 
 Migraciones SQL en `migrations/`, formato wrangler (`NNNN_nombre.sql`, orden lexicográfico, cada una corre una sola vez).
 
+Wrangler exige un fichero de config para resolver la base: es `wrangler.jsonc` **de este directorio** (no hay config en la raíz del repo — el deploy de docs no la necesita). Setup una vez: crear las bases y copiar sus IDs en `wrangler.jsonc`:
+
 ```bash
-wrangler d1 migrations apply nexrad-l3 --remote        # base real
-wrangler d1 migrations apply nexrad-l3-test --remote   # base de CI
+npx wrangler d1 create nexrad-l3        # anota database_id
+npx wrangler d1 create nexrad-l3-test   # ídem (o: npx wrangler d1 list)
+```
+
+Aplicar migraciones (desde `db/`):
+
+```bash
+cd db
+npx wrangler d1 migrations apply nexrad-l3 --remote        # base real
+npx wrangler d1 migrations apply nexrad-l3-test --remote   # base de CI
 ```
 
 Reglas:

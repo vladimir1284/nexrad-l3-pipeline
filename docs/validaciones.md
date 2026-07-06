@@ -31,7 +31,7 @@ En QGIS:
 
 1. Crear el bucket R2 (dashboard o `wrangler r2 bucket create nexrad-l3`) y un **API token R2** (Object Read & Write, scoped al bucket) → `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` + endpoint `https://<account_id>.r2.cloudflarestorage.com`.
 2. Crear la base D1: `wrangler d1 create nexrad-l3`. Guardar el `database_id`.
-3. Aplicar migraciones: `wrangler d1 migrations apply nexrad-l3 --remote` (las migraciones viven en `db/migrations/`; ver `db/README.md`).
+3. Copiar los `database_id` en `db/wrangler.jsonc` y aplicar migraciones **desde `db/`**: `cd db && npx wrangler d1 migrations apply nexrad-l3 --remote` (detalle en `db/README.md`).
 4. Crear un **API token de cuenta** con permiso *D1 — Edit* → `CLOUDFLARE_API_TOKEN`.
 5. Para el test de integración D1 en CI: **crear una segunda base `nexrad-l3-test`** (para que CI no ensucie la real), aplicarle las mismas migraciones, y añadir en GitHub los secrets `D1_TEST_DATABASE_ID` y `CLOUDFLARE_D1_API_TOKEN` (token con *D1 — Edit*; nombre distinto del `CLOUDFLARE_API_TOKEN` de Pages, que solo tiene permiso de deploy). `CLOUDFLARE_ACCOUNT_ID` ya existe del setup de docs. Sin estos secrets, los tests de integración D1 se saltan solos (CI sigue verde).
 
