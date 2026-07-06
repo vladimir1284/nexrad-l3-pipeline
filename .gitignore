@@ -9,6 +9,6 @@ uv.lock.tmp
 dist/
 *.egg-info/
 
-# entornos y datos locales
+# entornos y datos locales (solo raíz; tests/data va al repo)
 .env
-data/
+/data/
