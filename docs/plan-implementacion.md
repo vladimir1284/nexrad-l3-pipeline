@@ -27,7 +27,7 @@ El monitor de frescura es viable porque el feed es continuo (volumen cada 4–10
 
 ## Fases
 
-Cada fase tiene una **puerta de validación**: no se avanza sin pasarla.
+Cada fase tiene una **puerta de validación**: no se avanza sin pasarla. La parte manual de cada puerta (QGIS, dashboards, alertas) está detallada en [Validaciones manuales](validaciones.md).
 
 ### F0 — Andamiaje
 
