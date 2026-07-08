@@ -43,11 +43,32 @@ jobs:
       - run: uv sync --locked
       - run: uv run pytest
 
-  # Build del paquete Python. El build/push de imágenes a ghcr.io llega en F4,
-  # cuando existan los Dockerfiles (LDM + procesador).
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv build
+
+  # Imagen única del pipeline (poller + procesador) a ghcr.io, solo en main.
+  image:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ github.sha }}

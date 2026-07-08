@@ -63,6 +63,7 @@ def inject(
     count_per_pair: int,
     *,
     s3=None,
+    now: datetime | None = None,
 ) -> list[str]:
     """Baja y deposita productos con escritura atómica (tmp + rename,
     mismo filesystem) para que el watcher nunca vea ficheros a medias.
@@ -72,7 +73,7 @@ def inject(
     injected: list[str] = []
     for site in sites:
         for mnemo in mnemonics:
-            for key in latest_keys(site, mnemo, count_per_pair, s3=s3):
+            for key in latest_keys(site, mnemo, count_per_pair, s3=s3, now=now):
                 with tempfile.NamedTemporaryFile(
                     dir=input_dir, prefix=f".{key}.", delete=False
                 ) as tmp:

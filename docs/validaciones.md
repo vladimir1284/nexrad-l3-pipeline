@@ -59,13 +59,15 @@ El injector y el script de verificación son automáticos; lo manual es **lanzar
 3. ✅ El script de verificación reporta: 20 COGs en R2, 20 filas en D1, backlog vacío, 0 ficheros en el directorio de errores.
 4. Matar el watcher a mitad de una tanda y relanzarlo: ✅ los ficheros pendientes se procesan al arrancar (no se pierden productos entre reinicios).
 
-## F4 — LDM + Swarm
+## F4 — Poller + Swarm
 
-1. Deploy: `docker stack deploy -c stack.yml nexrad`. ✅ `docker service ls` muestra LDM y procesador `1/1` y healthy.
-2. ✅ En logs del LDM: conexión al upstream IDD establecida y productos NNEXRAD entrando (`ldmadmin watch` dentro del contenedor).
-3. ✅ Ficheros aparecen en el directorio compartido y desaparecen tras procesarse (consumo al día, backlog ~0).
-4. **Puerta 24 h:** dejar el stack corriendo un día. ✅ El monitor de frescura (o consulta manual a D1) confirma rasters < 30 min de antigüedad para los 3 sitios durante todo el período, sobreviviendo a los cortes de volumen del feed (los huecos de 4–10 min entre volúmenes son normales; > 30 min no).
-5. Reinicio de nodo o `docker service update --force`: ✅ ambos servicios vuelven solos y el flujo se recupera sin intervención.
+Setup una vez: crear los secrets de Swarm (comandos en la cabecera de `docker-compose.yml`) y tener el `.env` con las variables no-secretas (`R2_ENDPOINT`, `R2_BUCKET`, `CLOUDFLARE_ACCOUNT_ID`, `D1_DATABASE_ID`, opcional `NEXRAD_SITES`).
+
+1. Deploy: `set -a; source .env; set +a; docker stack config -c docker-compose.yml | docker stack deploy -c - nexrad`. ✅ `docker service ls` muestra poller y procesador `1/1`; `docker ps` los marca `(healthy)` tras el primer minuto.
+2. ✅ En logs del poller (`docker service logs nexrad_poller`): líneas `poll: SITE_N0B_...` entrando cada pocos minutos por sitio.
+3. ✅ En logs del procesador: cada producto `→ r2://...` en ~2–3 s; los ficheros del volumen compartido desaparecen tras procesarse (backlog ~0).
+4. **Puerta 24 h:** dejar el stack corriendo un día. ✅ El monitor de frescura (o consulta manual a D1: `SELECT site_id, MAX(vol_time) FROM rasters GROUP BY site_id`) confirma rasters < 30 min de antigüedad para los 3 sitios durante todo el período (los huecos de 4–10 min entre volúmenes son normales; > 30 min no).
+5. Reinicio de nodo o `docker service update --force nexrad_poller`: ✅ ambos servicios vuelven solos, el watermark evita re-descargar historia y el flujo se recupera sin intervención.
 
 ## F5 — Retención y alertas
 

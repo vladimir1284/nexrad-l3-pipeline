@@ -28,7 +28,7 @@ Los COG resultantes en uint8/uint16 comprimido pesan pocos MB en el peor caso. T
 
 ## Muestras para desarrollo
 
-Bucket S3 público **`unidata-nexrad-level3`** — muestras reales para desarrollo, tests y replay sin levantar LDM:
+Bucket S3 público **`unidata-nexrad-level3`** — fuente del poller en producción y muestras reales para desarrollo, tests y replay:
 
 - Claves: `SITE_MNEMO_YYYY_MM_DD_HH_MM_SS` (sitio sin prefijo K/T: `AMX`, `BYX`, `JUA`).
 - Acceso anónimo: botocore `UNSIGNED`.

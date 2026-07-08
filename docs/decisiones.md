@@ -11,14 +11,14 @@ Decisiones cerradas. No re-litigar sin motivo nuevo.
 
 ## Decodificación
 
-- **MetPy como decodificador base.** `Level3File` (Unidata, misma casa que LDM/IDD) decodifica cabeceras y paquetes radiales/raster; el grillado usa pyproj y la escritura Rasterio (driver COG). El parsing de fenómenos (granizo, meso, TVS, celdas) y VWP sobre Symbology/Tabular es propio — MetPy solo expone los bloques crudos.
-- **Paquete compartido con LAMULA-Ingest.** Los aspectos comunes (parsing de fenómenos/Tabular, tipos de dominio NEXRAD) van en un paquete Python compartido entre ambos proyectos, no como copia. La capa de decodificación se mantiene independiente del transporte (LDM aquí, nbtcp allá).
+- **MetPy como decodificador base.** `Level3File` (Unidata, misma casa que el feed) decodifica cabeceras y paquetes radiales/raster; el grillado usa pyproj y la escritura Rasterio (driver COG). El parsing de fenómenos (granizo, meso, TVS, celdas) y VWP sobre Symbology/Tabular es propio — MetPy solo expone los bloques crudos.
+- **Paquete compartido con LAMULA-Ingest.** Los aspectos comunes (parsing de fenómenos/Tabular, tipos de dominio NEXRAD) van en un paquete Python compartido entre ambos proyectos, no como copia. La capa de decodificación se mantiene independiente del transporte (polling S3 aquí, nbtcp allá).
 
 ## Transporte y entrega
 
-- **LDM como transporte, no nbtcp.** La fuente es el IDD público de Unidata, no un ORPG propio.
-- **Entrega pqact → procesador: FILE + watcher, no PIPE.** El import de MetPy/Rasterio (~1–2 s) hace inviable un proceso por producto (PIPE `-close`); el PIPE persistente concatena binarios sin framing (frágil); el fichero en disco da tolerancia a fallos, reintento y replay de crudos durante desarrollo. Procesados se borran tras subir a R2/D1; fallidos quedan para reproceso.
-- **pqact: un solo patrón ancho, no una entrada por producto.** Una única regla captura todos los mnemónicos × sitios hacia un mismo directorio; el procesador discrimina por nombre de fichero. La selección fina de qué baja del IDD vive en el `request` de `ldmd.conf` (mismo dialecto de patrón), que es donde ahorra ancho de banda.
+- **Polling del bucket S3 público, no LDM/IDD** *(revisada 2026-07-06; sustituye a "LDM como transporte")*. El IDD exige registro/autorización de Unidata por host; el bucket `unidata-nexrad-level3` es el mismo feed, público y anónimo, con 1–5 min de latencia — irrelevante frente al umbral de frescura de 30 min. El poller (`l3proc poll`) lista claves nuevas por sitio×producto cada ~60 s con watermark persistido y catch-up capeado. Si algún día hay acceso IDD, un contenedor LDM (`pqact` con acción `FILE` al mismo directorio) sustituye al poller sin tocar el resto — la decodificación es independiente del transporte.
+- **Entrega poller → procesador: FILE + watcher, no acoplamiento directo.** El fichero en disco da tolerancia a fallos, reintento, replay de crudos durante desarrollo, y mantiene el contrato que cualquier transporte alternativo (LDM, nbtcp) sabe cumplir. Escritura atómica (tmp + rename en el mismo filesystem) para que el watcher nunca vea productos a medias. Procesados se borran tras subir a R2/D1; fallidos quedan en `failed/` para reproceso.
+- **Un solo directorio de entrada para todos los sitios×productos.** El procesador no discrimina por nombre: decodifica el contenido. La selección de qué baja vive en la config del poller (`NEXRAD_SITES`/`NEXRAD_PRODUCTS`).
 
 ## Almacenamiento
 

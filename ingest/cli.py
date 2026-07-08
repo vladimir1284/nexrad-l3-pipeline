@@ -77,6 +77,56 @@ def _cmd_watch(args: argparse.Namespace) -> int:
     return 0 if stats.failed == 0 else 1
 
 
+def _cmd_poll(args: argparse.Namespace) -> int:
+    import os
+
+    from ingest.poller import PollConfig, run_poller
+    from ingest.products import RASTER_PRODUCTS
+
+    env_sites = [s.strip() for s in os.environ.get("NEXRAD_SITES", "").split(",") if s.strip()]
+    sites = args.site or env_sites
+    if not sites:
+        print("l3proc: faltan sitios (--site o NEXRAD_SITES)", file=sys.stderr)
+        return 3
+    env_products = [
+        p.strip() for p in os.environ.get("NEXRAD_PRODUCTS", "").split(",") if p.strip()
+    ]
+    mnemonics = args.product or env_products or [spec.mnemonic for spec in RASTER_PRODUCTS.values()]
+    cfg = PollConfig(
+        input_dir=args.dir,
+        sites=sites,
+        mnemonics=mnemonics,
+        interval_s=args.interval,
+        catchup=args.catchup,
+    )
+    stop = Event()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda *_: stop.set())
+    heartbeat = args.heartbeat if args.heartbeat else args.dir / ".poll_heartbeat"
+    run_poller(cfg, heartbeat=heartbeat, stop=stop)
+    return 0
+
+
+def _cmd_health(args: argparse.Namespace) -> int:
+    import time
+
+    try:
+        age = time.time() - args.heartbeat.stat().st_mtime
+    except OSError:
+        print("unhealthy: sin heartbeat", file=sys.stderr)
+        return 1
+    if age > args.max_age:
+        print(f"unhealthy: heartbeat de hace {age:.0f} s (máx {args.max_age})", file=sys.stderr)
+        return 1
+    if args.dir is not None:
+        backlog = sum(1 for p in args.dir.iterdir() if p.is_file() and not p.name.startswith("."))
+        if backlog > args.max_backlog:
+            print(f"unhealthy: backlog {backlog} (máx {args.max_backlog})", file=sys.stderr)
+            return 1
+    print("healthy")
+    return 0
+
+
 def _cmd_replay(args: argparse.Namespace) -> int:
     from ingest.products import RASTER_PRODUCTS
     from ingest.replay import inject
@@ -138,6 +188,46 @@ def main(argv: list[str] | None = None) -> int:
         help="fichero de heartbeat (por defecto <dir>/.heartbeat)",
     )
     p_watch.set_defaults(func=_cmd_watch)
+
+    p_poll = sub.add_parser("poll", help="servicio: polling continuo del bucket público")
+    p_poll.add_argument("dir", type=Path, help="directorio de entrada del watcher")
+    p_poll.add_argument(
+        "--site",
+        action="append",
+        default=None,
+        help="sitio sin prefijo K/T; repetible (o env NEXRAD_SITES=AMX,BYX,JUA)",
+    )
+    p_poll.add_argument(
+        "--product", action="append", default=None, help="mnemónico; por defecto los registrados"
+    )
+    p_poll.add_argument(
+        "--interval", type=float, default=60.0, help="segundos entre ciclos (def. 60)"
+    )
+    p_poll.add_argument(
+        "--catchup", type=int, default=6, help="máx. claves por par al ponerse al día (def. 6)"
+    )
+    p_poll.add_argument(
+        "--heartbeat",
+        type=Path,
+        default=None,
+        help="fichero heartbeat (def. <dir>/.poll_heartbeat)",
+    )
+    p_poll.set_defaults(func=_cmd_poll)
+
+    p_health = sub.add_parser("health", help="healthcheck: edad de heartbeat y backlog")
+    p_health.add_argument(
+        "--heartbeat", type=Path, required=True, help="fichero de heartbeat a comprobar"
+    )
+    p_health.add_argument(
+        "--max-age", type=float, default=300, help="edad máx. del heartbeat en s (def. 300)"
+    )
+    p_health.add_argument(
+        "--dir", type=Path, default=None, help="si se da, comprobar backlog del directorio"
+    )
+    p_health.add_argument(
+        "--max-backlog", type=int, default=200, help="ficheros máx. en backlog (def. 200)"
+    )
+    p_health.set_defaults(func=_cmd_health)
 
     p_replay = sub.add_parser("replay", help="inyecta productos recientes del bucket público")
     p_replay.add_argument("dir", type=Path, help="directorio de entrada del watcher")

@@ -1,0 +1,78 @@
+# Stack para Docker Swarm (nodo único). Deploy:
+#
+#   set -a; source .env; set +a          # variables no-secretas
+#   docker stack config -c docker-compose.yml | docker stack deploy -c - nexrad
+#
+# (docker stack deploy no interpola ${VARS}; docker stack config sí.)
+#
+# Secrets (una vez):
+#   printf '%s' "$R2_ACCESS_KEY_ID"     | docker secret create nexrad_r2_access_key_id -
+#   printf '%s' "$R2_SECRET_ACCESS_KEY" | docker secret create nexrad_r2_secret_access_key -
+#   printf '%s' "$CLOUDFLARE_API_TOKEN" | docker secret create nexrad_cf_api_token -
+
+services:
+  poller:
+    image: ghcr.io/vladimir1284/nexrad-l3-pipeline:${IMAGE_TAG:-latest}
+    command: ["poll", "/data/incoming", "--interval", "60"]
+    environment:
+      NEXRAD_SITES: ${NEXRAD_SITES:-AMX,BYX,JUA}
+      # NEXRAD_PRODUCTS: sin definir = todos los registrados (F4: N0B)
+    volumes:
+      - incoming:/data/incoming
+    healthcheck:
+      test: ["CMD", "l3proc", "health", "--heartbeat", "/data/incoming/.poll_heartbeat", "--max-age", "300"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      resources:
+        limits:
+          memory: 256M
+
+  processor:
+    image: ghcr.io/vladimir1284/nexrad-l3-pipeline:${IMAGE_TAG:-latest}
+    command: ["watch", "/data/incoming"]
+    environment:
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      R2_BUCKET: ${R2_BUCKET}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID}
+      D1_DATABASE_ID: ${D1_DATABASE_ID}
+      R2_ACCESS_KEY_ID_FILE: /run/secrets/nexrad_r2_access_key_id
+      R2_SECRET_ACCESS_KEY_FILE: /run/secrets/nexrad_r2_secret_access_key
+      CLOUDFLARE_API_TOKEN_FILE: /run/secrets/nexrad_cf_api_token
+    secrets:
+      - nexrad_r2_access_key_id
+      - nexrad_r2_secret_access_key
+      - nexrad_cf_api_token
+    volumes:
+      - incoming:/data/incoming
+    healthcheck:
+      test: ["CMD", "l3proc", "health", "--heartbeat", "/data/incoming/.heartbeat", "--max-age", "300", "--dir", "/data/incoming", "--max-backlog", "200"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      resources:
+        limits:
+          memory: 1G
+
+volumes:
+  incoming:
+
+secrets:
+  nexrad_r2_access_key_id:
+    external: true
+  nexrad_r2_secret_access_key:
+    external: true
+  nexrad_cf_api_token:
+    external: true

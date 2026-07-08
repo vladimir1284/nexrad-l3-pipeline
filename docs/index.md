@@ -1,10 +1,10 @@
 # nexrad-l3-pipeline
 
-Pipeline **headless** de ingesta de productos NEXRAD Level III desde el feed IDD de NSF Unidata, con generación de artefactos geoespaciales (Cloud-Optimized GeoTIFF) en Cloudflare R2 y metadatos/fenómenos en Cloudflare D1.
+Pipeline **headless** de ingesta de productos NEXRAD Level III desde el espejo S3 público del feed de NSF Unidata (`unidata-nexrad-level3`, acceso anónimo), con generación de artefactos geoespaciales (Cloud-Optimized GeoTIFF) en Cloudflare R2 y metadatos/fenómenos en Cloudflare D1.
 
 **Propósito:** montar un demo de nuestro visualizador web de productos de radar. El visualizador (LAMULA-WebViewer, proyecto aparte basado en OpenLayers) consume directamente los COG desde R2 y consulta D1; este proyecto no renderiza ni visualiza nada.
 
-Es el hermano "cloud/demo" de **LAMULA-Ingest**: misma lógica de dominio NEXRAD (decodificación, extracción de fenómenos), pero cambia la fuente (LDM/IDD en vez de nbtcp desde un ORPG) y el destino (R2 + D1 en vez de FTP + PostgreSQL). Los aspectos comunes viven en un paquete Python compartido.
+Es el hermano "cloud/demo" de **LAMULA-Ingest**: misma lógica de dominio NEXRAD (decodificación, extracción de fenómenos), pero cambia la fuente (bucket S3 público de Unidata en vez de nbtcp desde un ORPG) y el destino (R2 + D1 en vez de FTP + PostgreSQL). Los aspectos comunes viven en un paquete Python compartido.
 
 ## Alcance del demo
 

@@ -53,7 +53,7 @@ def test_inject_escritura_atomica(tmp_path):
     s3 = FakeS3({_key("2026_07_06", "15_45_17"): payload})
     dest = tmp_path / "incoming"
 
-    injected = inject(dest, ["AMX"], ["N0B"], 1, s3=s3)
+    injected = inject(dest, ["AMX"], ["N0B"], 1, s3=s3, now=NOW)
 
     assert injected == [_key("2026_07_06", "15_45_17")]
     assert (dest / injected[0]).read_bytes() == payload

@@ -4,11 +4,12 @@ Restricciones: despliegue en **Docker Swarm** (nodo único) y **validación func
 
 ## Implicaciones Swarm
 
-1. **Colocación LDM ↔ procesador.** Se comunican por directorio compartido (FILE + watcher). Con nodo único basta un volumen local nombrado; si el swarm crece, ambos servicios llevan `placement.constraints` al mismo nodo (label `node.labels.nexrad==true`).
-2. **Stack file, no compose plano.** `docker stack deploy` ignora `restart:`; se usa `deploy:` (replicas, restart_policy, resources). LDM = 1 réplica siempre (cola de productos con estado); procesador = 1 réplica (inotify sobre directorio local no se paraleliza).
-3. **Registry obligatorio.** Swarm hace pull, no build. CI construye y empuja a `ghcr.io`.
+1. **Colocación poller ↔ procesador.** Se comunican por directorio compartido (FILE + watcher). Con nodo único basta un volumen local nombrado; si el swarm crece, ambos servicios llevan `placement.constraints` al mismo nodo (label `node.labels.nexrad==true`).
+2. **Stack file, no compose plano.** `docker stack deploy` ignora `restart:`; se usa `deploy:` (replicas, restart_policy, resources). Poller = 1 réplica (watermark con estado en el volumen); procesador = 1 réplica (inotify sobre directorio local no se paraleliza).
+3. **Registry obligatorio.** Swarm hace pull, no build. CI construye y empuja a `ghcr.io` (imagen única para ambos servicios).
 4. **Credenciales R2/D1 = Docker secrets**, no variables de entorno en el stack file.
-5. **HEALTHCHECK nativo en cada imagen** → Swarm reinicia containers unhealthy automáticamente.
+5. **Healthcheck por servicio en el stack** (`l3proc health`: edad del heartbeat + backlog) → Swarm reinicia containers unhealthy automáticamente.
+6. **`docker stack deploy` no interpola `${VARS}`** — desplegar con `docker stack config -c docker-compose.yml | docker stack deploy -c - nexrad`.
 
 ## Mecanismos de validación
 
@@ -16,10 +17,10 @@ Restricciones: despliegue en **Docker Swarm** (nodo único) y **validación func
 |---|---|---|
 | Unit/integración | pytest + muestras reales cacheadas del bucket `unidata-nexrad-level3` (golden tests: decode → grid → COG con valores esperados) | lógica de dominio, sin red ni LDM |
 | Integración storage | MinIO en CI para R2 (S3-compatible); D1 de test real (tier gratuito) | subida, schema, batching |
-| E2E sin LDM | **Injector de replay**: baja productos recientes del bucket S3 y los deja caer en el directorio de entrada — misma ruta que producción | procesador completo → R2 + D1 |
-| Healthcheck LDM | proceso `ldmd` vivo + edad del último producto recibido < umbral | conectividad IDD real |
+| E2E sin poller | **Injector de replay**: baja productos recientes del bucket S3 y los deja caer en el directorio de entrada — misma ruta que producción | procesador completo → R2 + D1 |
+| Healthcheck poller | heartbeat (mtime de fichero) tocado en cada ciclo | loop de polling vivo |
 | Healthcheck procesador | heartbeat (mtime de fichero) + backlog del directorio de entrada < umbral | servicio vivo y al día |
-| **Monitor de frescura E2E** | servicio del stack: por cada sitio configurado, D1 tiene raster < 30 min **y** `HEAD` del objeto R2 correspondiente responde | cadena completa IDD → LDM → procesador → R2/D1 |
+| **Monitor de frescura E2E** | servicio del stack: por cada sitio configurado, D1 tiene raster < 30 min **y** `HEAD` del objeto R2 correspondiente responde | cadena completa bucket → poller → procesador → R2/D1 |
 | Reconciliación | el sweep de retención reporta huérfanos R2↔D1 (métrica, no solo limpieza) | consistencia entre almacenes |
 | CI | GitHub Actions: ruff + pytest + build/push de imágenes a ghcr | cada commit |
 
@@ -53,9 +54,11 @@ Watcher (watchdog) como servicio persistente + injector de replay desde el bucke
 
 > **Puerta:** e2e local — el injector mete 20 productos; script verifica: 20 COGs en R2, 20 filas en D1, backlog vacío, fallidos preservados en directorio de errores.
 
-### F4 — LDM + stack Swarm
+### F4 — Poller + stack Swarm
 
-Contenedor LDM (`ldmd.conf` con request real, `pqact.conf` con patrón único), stack file con volúmenes/secrets/healthchecks, deploy al swarm.
+Servicio poller del bucket S3 público (`l3proc poll`: watermark por sitio×producto, catch-up capeado), imagen única en ghcr, stack file con volumen compartido/secrets/healthchecks, deploy al swarm.
+
+*(Revisión 2026-07-06: F4 era "contenedor LDM + IDD"; el IDD exige registro con Unidata. El bucket S3 público da el mismo feed con 1–5 min de latencia sin registro; LDM queda como transporte alternativo documentado en [Decisiones](decisiones.md).)*
 
 > **Puerta:** monitor de frescura verde 24 h seguidas con los 3 sitios.
 
