@@ -8,13 +8,13 @@
     {
       "binding": "DB",
       "database_name": "nexrad-l3",
-      "database_id": "PON-AQUI-EL-ID",
+      "database_id": "d7b5d89f-d33c-46ff-8ae9-a1116662670e",
       "migrations_dir": "migrations"
     },
     {
       "binding": "DB_TEST",
       "database_name": "nexrad-l3-test",
-      "database_id": "PON-AQUI-EL-ID-TEST",
+      "database_id": "64bd4162-00c0-409a-8b9a-2e6889de4157",
       "migrations_dir": "migrations"
     }
   ]
