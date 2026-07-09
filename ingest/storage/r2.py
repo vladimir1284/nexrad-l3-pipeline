@@ -42,3 +42,20 @@ class R2Client:
             if exc.response["ResponseMetadata"]["HTTPStatusCode"] == 404:
                 return None
             raise
+
+    def list_keys(self, prefix: str = "") -> list[str]:
+        """Todas las claves del bucket (paginado). Escala de demo: miles."""
+        keys: list[str] = []
+        paginator = self._s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+            keys.extend(obj["Key"] for obj in page.get("Contents", []))
+        return keys
+
+    def delete_keys(self, keys: list[str]) -> None:
+        """Borrado en lotes de 1000 (límite de delete_objects)."""
+        for i in range(0, len(keys), 1000):
+            chunk = keys[i : i + 1000]
+            self._s3.delete_objects(
+                Bucket=self.bucket,
+                Delete={"Objects": [{"Key": k} for k in chunk], "Quiet": True},
+            )
