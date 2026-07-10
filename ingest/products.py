@@ -41,3 +41,18 @@ RASTER_PRODUCTS: dict[int, ProductSpec] = {
     173: ProductSpec(173, "DU3", 250.0, "mm", "dpr"),
     172: ProductSpec(172, "DTA", 250.0, "mm", "dpr"),
 }
+
+# Fenómenos no-raster: código → (mnemónico, kind en la tabla phenomena).
+# NHI/NTV no fluyen en el bucket (verificado jun-jul 2026); la señal de
+# TVS viaja en la columna TVS del NMD.
+PHENOMENA_PRODUCTS: dict[int, tuple[str, str]] = {
+    58: ("NST", "storm_cell"),
+    141: ("NMD", "meso"),
+}
+
+
+def all_mnemonics() -> list[str]:
+    """Todos los productos que el poller baja por defecto."""
+    return [spec.mnemonic for spec in RASTER_PRODUCTS.values()] + [
+        mnemo for mnemo, _ in PHENOMENA_PRODUCTS.values()
+    ]

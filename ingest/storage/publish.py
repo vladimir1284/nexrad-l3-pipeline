@@ -5,12 +5,14 @@ Orden de statements pensado para cortes a mitad: primero dimensiones
 Republicar el mismo volumen es idempotente (upsert por clave natural).
 """
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from ingest.decoder.level3 import RadialProduct
-from ingest.gridding.aeqd import AeqdGrid
+from ingest.gridding.aeqd import AeqdGrid, radar_proj4
+from ingest.phenomena.parse import PhenomenaProduct
 from ingest.storage.d1 import D1Client
 from ingest.storage.keys import raster_key
 from ingest.storage.r2 import R2Client
@@ -28,10 +30,11 @@ ON CONFLICT (site_id) DO UPDATE SET
 
 UPSERT_PRODUCT = """
 INSERT INTO products (code, mnemonic, unit, kind)
-VALUES (?, ?, ?, 'raster')
+VALUES (?, ?, ?, ?)
 ON CONFLICT (code) DO UPDATE SET
     mnemonic = excluded.mnemonic,
-    unit = excluded.unit
+    unit = excluded.unit,
+    kind = excluded.kind
 """
 
 UPSERT_RASTER = """
@@ -81,7 +84,7 @@ def publish_cog(
             ),
             (
                 UPSERT_PRODUCT,
-                [prod.spec.code, prod.spec.mnemonic, prod.spec.unit],
+                [prod.spec.code, prod.spec.mnemonic, prod.spec.unit, "raster"],
             ),
             (
                 UPSERT_RASTER,
@@ -105,3 +108,53 @@ def publish_cog(
         ]
     )
     return PublishResult(r2_key=key, size_bytes=size)
+
+
+INSERT_PHENOMENON = """
+INSERT INTO phenomena (
+    site_id, product_code, vol_time, kind, cell_id, lat, lon,
+    azimuth_deg, range_km, attrs, created_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+
+def publish_phenomena(php: PhenomenaProduct, d1: D1Client) -> int:
+    """Publica los fenómenos de un producto. Idempotente por
+    (sitio, producto, volumen): borra y reinserta — no hay clave natural
+    por registro. Devuelve cuántos registros insertó."""
+    now = utcnow_iso()
+    vol_iso = php.vol_time.isoformat(timespec="seconds")
+
+    statements = [
+        (
+            UPSERT_RADAR,
+            [php.site_id, php.lat, php.lon, php.height_m, radar_proj4(php.lat, php.lon), now, now],
+        ),
+        (UPSERT_PRODUCT, [php.code, php.mnemonic, None, "phenomena"]),
+        (
+            "DELETE FROM phenomena WHERE site_id = ? AND product_code = ? AND vol_time = ?",
+            [php.site_id, php.code, vol_iso],
+        ),
+    ]
+    statements += [
+        (
+            INSERT_PHENOMENON,
+            [
+                php.site_id,
+                php.code,
+                vol_iso,
+                r.kind,
+                r.cell_id,
+                r.lat,
+                r.lon,
+                r.azimuth_deg,
+                r.range_km,
+                json.dumps(r.attrs, separators=(",", ":")),
+                now,
+            ],
+        )
+        for r in php.records
+    ]
+    d1.execute_many(statements)
+    return len(php.records)

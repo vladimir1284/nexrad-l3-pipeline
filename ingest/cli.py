@@ -81,7 +81,7 @@ def _cmd_poll(args: argparse.Namespace) -> int:
     import os
 
     from ingest.poller import PollConfig, run_poller
-    from ingest.products import RASTER_PRODUCTS
+    from ingest.products import all_mnemonics
 
     env_sites = [s.strip() for s in os.environ.get("NEXRAD_SITES", "").split(",") if s.strip()]
     sites = args.site or env_sites
@@ -91,7 +91,7 @@ def _cmd_poll(args: argparse.Namespace) -> int:
     env_products = [
         p.strip() for p in os.environ.get("NEXRAD_PRODUCTS", "").split(",") if p.strip()
     ]
-    mnemonics = args.product or env_products or [spec.mnemonic for spec in RASTER_PRODUCTS.values()]
+    mnemonics = args.product or env_products or all_mnemonics()
     cfg = PollConfig(
         input_dir=args.dir,
         sites=sites,
@@ -208,10 +208,10 @@ def _cmd_monitor(args: argparse.Namespace) -> int:
 
 
 def _cmd_replay(args: argparse.Namespace) -> int:
-    from ingest.products import RASTER_PRODUCTS
+    from ingest.products import all_mnemonics
     from ingest.replay import inject
 
-    mnemonics = args.product or [spec.mnemonic for spec in RASTER_PRODUCTS.values()]
+    mnemonics = args.product or all_mnemonics()
     injected = inject(args.dir, args.site, mnemonics, args.count)
     print(f"inyectados={len(injected)}")
     return 0 if injected else 1

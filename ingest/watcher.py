@@ -9,6 +9,7 @@ Un solo hilo consumidor: inotify sobre un directorio local no se
 paraleliza, y el orden de llegada ya es el orden del feed.
 """
 
+import json
 import logging
 import queue
 import shutil
@@ -22,62 +23,85 @@ from threading import Event
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from ingest.decoder.level3 import RadialProduct, decode_file
+from ingest.decoder.level3 import RadialProduct, UnsupportedProductError, decode_file
 from ingest.gridding.aeqd import AeqdGrid, grid_radial
 from ingest.gridding.cog import write_cog
+from ingest.phenomena.parse import PhenomenaProduct, parse_file
 from ingest.storage.publish import PublishResult
 
 log = logging.getLogger("l3proc")
 
 # callable(cog_path, prod, grid) -> PublishResult
 Publisher = Callable[[Path, RadialProduct, AeqdGrid], PublishResult]
+# callable(php) -> nº de registros publicados
+PhenomenaPublisher = Callable[[PhenomenaProduct], int]
 
 
-def build_publisher() -> Publisher:
-    """Publisher real R2+D1 con configuración del entorno."""
+@dataclass(frozen=True)
+class Publishers:
+    raster: Publisher
+    phenomena: PhenomenaPublisher
+
+
+def build_publisher() -> Publishers:
+    """Publishers reales R2+D1 con configuración del entorno."""
     from ingest.config import StorageConfig
     from ingest.storage.d1 import D1Client
-    from ingest.storage.publish import publish_cog
+    from ingest.storage.publish import publish_cog, publish_phenomena
     from ingest.storage.r2 import R2Client
 
     cfg = StorageConfig.from_env()
     r2 = R2Client(cfg.r2_endpoint, cfg.r2_bucket, cfg.r2_access_key_id, cfg.r2_secret_access_key)
     d1 = D1Client(cfg.cf_account_id, cfg.d1_database_id, cfg.cf_api_token)
 
-    def publish(cog_path: Path, prod: RadialProduct, grid: AeqdGrid) -> PublishResult:
-        return publish_cog(cog_path, prod, grid, r2, d1)
-
-    return publish
+    return Publishers(
+        raster=lambda cog, prod, grid: publish_cog(cog, prod, grid, r2, d1),
+        phenomena=lambda php: publish_phenomena(php, d1),
+    )
 
 
 class ProductProcessor:
-    """Procesa un producto crudo. Con publisher, el COG es efímero;
-    sin publisher (dev), el COG queda en output_dir."""
+    """Procesa un producto crudo — raster o fenómenos, decide por contenido.
 
-    def __init__(self, publisher: Publisher | None = None, output_dir: Path | None = None):
+    Con publishers, los artefactos son efímeros (van a R2/D1); sin ellos
+    (dev), COGs y JSON de fenómenos quedan en output_dir."""
+
+    def __init__(self, publisher: Publishers | None = None, output_dir: Path | None = None):
         if publisher is None and output_dir is None:
-            raise ValueError("sin publisher hace falta output_dir para conservar los COG")
-        self._publisher = publisher
+            raise ValueError("sin publisher hace falta output_dir para conservar la salida")
+        self._publishers = publisher
         self._output_dir = output_dir
 
-    def process(self, raw: Path) -> None:
-        t0 = time.monotonic()
-        prod = decode_file(raw)
+    def _out_dir(self) -> Path:
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        return self._output_dir
+
+    def _process_raster(self, prod: RadialProduct) -> str:
         grid = grid_radial(prod)
         stamp = prod.vol_time.strftime("%Y%m%d_%H%M%S")
         name = f"{prod.site_id}_{prod.spec.mnemonic}_{stamp}.tif"
+        if self._publishers is None:
+            return str(write_cog(grid, prod, self._out_dir() / name))
+        with tempfile.TemporaryDirectory(prefix="l3proc-") as tmp:
+            cog = write_cog(grid, prod, Path(tmp) / name)
+            result = self._publishers.raster(cog, prod, grid)
+        return f"r2://{result.r2_key}"
 
-        if self._publisher is None:
-            out_dir = self._output_dir
-            out_dir.mkdir(parents=True, exist_ok=True)
-            cog = write_cog(grid, prod, out_dir / name)
-            dest = str(cog)
-        else:
-            with tempfile.TemporaryDirectory(prefix="l3proc-") as tmp:
-                cog = write_cog(grid, prod, Path(tmp) / name)
-                result = self._publisher(cog, prod, grid)
-                dest = f"r2://{result.r2_key}"
+    def _process_phenomena(self, php: PhenomenaProduct) -> str:
+        if self._publishers is None:
+            stamp = php.vol_time.strftime("%Y%m%d_%H%M%S")
+            out = self._out_dir() / f"{php.site_id}_{php.mnemonic}_{stamp}.json"
+            out.write_text(json.dumps([r.__dict__ for r in php.records], default=str, indent=1))
+            return f"{out} ({len(php.records)} registros)"
+        n = self._publishers.phenomena(php)
+        return f"d1://phenomena ({n} registros)"
 
+    def process(self, raw: Path) -> None:
+        t0 = time.monotonic()
+        try:
+            dest = self._process_raster(decode_file(raw))
+        except UnsupportedProductError:
+            dest = self._process_phenomena(parse_file(raw))
         log.info("%s → %s (%.2f s)", raw.name, dest, time.monotonic() - t0)
 
 
