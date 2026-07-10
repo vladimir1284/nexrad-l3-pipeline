@@ -35,16 +35,18 @@ def write_cog(grid: AeqdGrid, prod: RadialProduct, path: str | Path) -> Path:
         ds.write(grid.data, 1)
         ds.scales = (prod.scale,)
         ds.offsets = (prod.offset,)
-        ds.update_tags(
-            SITE=prod.site_id,
-            PRODUCT_CODE=str(prod.spec.code),
-            PRODUCT=prod.spec.mnemonic,
-            UNIT=prod.spec.unit,
-            VOL_TIME=prod.vol_time.isoformat(),
-            EL_ANGLE=str(prod.el_angle),
-            VCP=str(prod.vcp),
-            RADAR_LAT=str(prod.lat),
-            RADAR_LON=str(prod.lon),
-            RADAR_HEIGHT_M=str(prod.height_m),
-        )
+        tags = {
+            "SITE": prod.site_id,
+            "PRODUCT_CODE": str(prod.spec.code),
+            "PRODUCT": prod.spec.mnemonic,
+            "UNIT": prod.spec.unit,
+            "VOL_TIME": prod.vol_time.isoformat(),
+            "VCP": str(prod.vcp),
+            "RADAR_LAT": str(prod.lat),
+            "RADAR_LON": str(prod.lon),
+            "RADAR_HEIGHT_M": str(prod.height_m),
+        }
+        if prod.el_angle is not None:
+            tags["EL_ANGLE"] = str(prod.el_angle)
+        ds.update_tags(**tags)
     return path

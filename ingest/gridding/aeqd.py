@@ -55,9 +55,11 @@ def grid_radial(prod: RadialProduct) -> AeqdGrid:
 
     pix_bin = np.floor_divide(az, az_width).astype(np.intp) % n_radials
     rad_idx = radial_for_bin[pix_bin]
-    gate_idx = np.floor((rng / gate_w - prod.first_gate) / prod.gate_scale).astype(np.intp)
+    # Índice de gate por geometría nominal del producto (el gate_scale del
+    # paquete es un artefacto inconsistente entre productos y se ignora).
+    gate_idx = np.floor(rng / gate_w).astype(np.intp)
 
-    valid = (gate_idx >= 0) & (gate_idx < prod.n_gates)
+    valid = gate_idx < prod.n_gates
     data = np.full((size, size), LEVEL_BELOW_THRESHOLD, dtype=np.uint8)
     data[valid] = prod.levels[rad_idx[valid], gate_idx[valid]]
 

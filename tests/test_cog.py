@@ -51,6 +51,25 @@ def test_cog_roundtrip(site, sample_path, tmp_path):
         assert np.array_equal(data, grid.data)
 
 
+def test_cog_producto_de_volumen_sin_elevacion(tmp_path):
+    from tests.conftest import DATA_DIR
+
+    prod = decode_file(DATA_DIR / "AMX_EET_2026_07_10_04_57_17")
+    grid = grid_radial(prod)
+    out = write_cog(grid, prod, tmp_path / "eet.tif")
+
+    with rasterio.open(out) as ds:
+        assert ds.width == ds.height == 692
+        assert ds.transform.a == 1000.0
+        assert ds.transform.c == -346_000.0
+        assert ds.scales == (1.0,)
+        assert ds.offsets == (-2.0,)
+        tags = ds.tags()
+        assert tags["PRODUCT"] == "EET"
+        assert tags["UNIT"] == "kft"
+        assert "EL_ANGLE" not in tags  # derivado de volumen: sin elevación
+
+
 def test_cli_process(site, sample_path, tmp_path, capsys):
     assert main(["process", str(sample_path), "-o", str(tmp_path)]) == 0
     out = tmp_path / EXPECTED_NAME[site]
