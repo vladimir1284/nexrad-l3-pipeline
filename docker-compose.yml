@@ -55,7 +55,10 @@ services:
     volumes:
       - incoming:/data/incoming
     healthcheck:
-      test: ["CMD", "l3proc", "health", "--heartbeat", "/data/incoming/.heartbeat", "--max-age", "300", "--dir", "/data/incoming", "--max-backlog", "200"]
+      # Solo heartbeat: reiniciar por backlog es contraproducente (el reinicio
+      # no vacía nada y pierde el arranque). El backlog atrasado lo detecta el
+      # monitor de frescura, que es alerta y no reinicio.
+      test: ["CMD", "l3proc", "health", "--heartbeat", "/data/incoming/.heartbeat", "--max-age", "300"]
       interval: 60s
       timeout: 10s
       retries: 3
