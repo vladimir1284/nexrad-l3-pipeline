@@ -71,9 +71,9 @@ Setup una vez: crear los secrets de Swarm (comandos en la cabecera de `docker-co
 
 ## F5 — Retención y alertas
 
-Setup: bot de Telegram existente — crear los secrets `nexrad_telegram_bot_token` y `nexrad_telegram_chat_id` en Swarm (con contenido vacío el monitor queda en modo solo-log). Los servicios `sweep` (pasada horaria, `--fix`) y `monitor` (ciclo 5 min, umbral 30 min) van en el mismo stack. Pasada manual desde dev: `l3proc sweep --once` (reporta sin corregir; exit 1 si hay inconsistencias).
+Setup: bot de Telegram existente. Retención y monitor corren en el Worker de Cloudflare `nexrad-l3-ops` (`workers/ops/`; originalmente eran servicios del stack Swarm, migrados el 2026-07-10 para que el monitor sobreviva a la caída del VPS): sweep al minuto 17 de cada hora, monitor cada 5 min con umbral 30 min. Secrets de Telegram vía `wrangler secret put` (sin ellos el monitor queda en modo solo-log). Pasada manual desde dev: `l3proc sweep --once` (reporta sin corregir; exit 1 si hay inconsistencias). Logs: `npx wrangler tail nexrad-l3-ops`.
 
-1. Insertar a mano en D1 un raster con `vol_time` > 72 h apuntando a un objeto R2 real (o esperar 3 días de operación): ✅ la siguiente pasada del sweep lo borra de R2 **y** D1 (`docker service logs nexrad_sweep`: `sweep: ... rasters=N`).
+1. Insertar a mano en D1 un raster con `vol_time` > 72 h apuntando a un objeto R2 real (o esperar 3 días de operación): ✅ la siguiente pasada del sweep lo borra de R2 **y** D1 (en el tail del Worker: `sweep: ... rasters=N`).
 2. Borrar a mano una fila D1 de un raster vigente: ✅ la reconciliación reporta el objeto R2 huérfano en el log (`reconcile: N huérfanos R2 ...`) y con `--fix` lo borra.
 3. Borrar a mano un objeto R2 vigente: ✅ la reconciliación reporta la fila D1 colgante (y con `--fix` la borra).
 4. Parar el procesador (`docker service scale nexrad_processor=0`): ✅ en < ~35 min llega **alerta Telegram** `🔴 <sitio>: sin datos frescos`.

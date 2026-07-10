@@ -9,9 +9,10 @@
 #   printf '%s' "$R2_ACCESS_KEY_ID"     | docker secret create nexrad_r2_access_key_id -
 #   printf '%s' "$R2_SECRET_ACCESS_KEY" | docker secret create nexrad_r2_secret_access_key -
 #   printf '%s' "$CLOUDFLARE_API_TOKEN" | docker secret create nexrad_cf_api_token -
-#   printf '%s' "$TELEGRAM_BOT_TOKEN"   | docker secret create nexrad_telegram_bot_token -
-#   printf '%s' "$TELEGRAM_CHAT_ID"     | docker secret create nexrad_telegram_chat_id -
-# (los de Telegram pueden crearse con contenido vacío: el monitor pasa a solo-log)
+#
+# Monitor de frescura y sweep de retención viven fuera del stack, en el
+# Worker de Cloudflare `nexrad-l3-ops` (workers/ops/) — un monitor dentro
+# del VPS no puede alertar cuando el VPS muere.
 
 services:
   poller:
@@ -72,71 +73,6 @@ services:
         limits:
           memory: 1G
 
-  sweep:
-    image: ghcr.io/vladimir1284/nexrad-l3-pipeline:${IMAGE_TAG:-latest}
-    command: ["sweep", "--interval", "3600", "--window-hours", "72", "--fix", "--heartbeat", "/tmp/heartbeat"]
-    environment:
-      R2_ENDPOINT: ${R2_ENDPOINT}
-      R2_BUCKET: ${R2_BUCKET}
-      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID}
-      D1_DATABASE_ID: ${D1_DATABASE_ID}
-      R2_ACCESS_KEY_ID_FILE: /run/secrets/nexrad_r2_access_key_id
-      R2_SECRET_ACCESS_KEY_FILE: /run/secrets/nexrad_r2_secret_access_key
-      CLOUDFLARE_API_TOKEN_FILE: /run/secrets/nexrad_cf_api_token
-    secrets:
-      - nexrad_r2_access_key_id
-      - nexrad_r2_secret_access_key
-      - nexrad_cf_api_token
-    healthcheck:
-      test: ["CMD", "l3proc", "health", "--heartbeat", "/tmp/heartbeat", "--max-age", "7200"]
-      interval: 300s
-      timeout: 10s
-      retries: 3
-      start_period: 300s
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: any
-        delay: 5s
-      resources:
-        limits:
-          memory: 256M
-
-  monitor:
-    image: ghcr.io/vladimir1284/nexrad-l3-pipeline:${IMAGE_TAG:-latest}
-    command: ["monitor", "--interval", "300", "--max-age", "30", "--heartbeat", "/tmp/heartbeat"]
-    environment:
-      NEXRAD_SITES: ${NEXRAD_SITES:-AMX,BYX,JUA}
-      R2_ENDPOINT: ${R2_ENDPOINT}
-      R2_BUCKET: ${R2_BUCKET}
-      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID}
-      D1_DATABASE_ID: ${D1_DATABASE_ID}
-      R2_ACCESS_KEY_ID_FILE: /run/secrets/nexrad_r2_access_key_id
-      R2_SECRET_ACCESS_KEY_FILE: /run/secrets/nexrad_r2_secret_access_key
-      CLOUDFLARE_API_TOKEN_FILE: /run/secrets/nexrad_cf_api_token
-      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/nexrad_telegram_bot_token
-      TELEGRAM_CHAT_ID_FILE: /run/secrets/nexrad_telegram_chat_id
-    secrets:
-      - nexrad_r2_access_key_id
-      - nexrad_r2_secret_access_key
-      - nexrad_cf_api_token
-      - nexrad_telegram_bot_token
-      - nexrad_telegram_chat_id
-    healthcheck:
-      test: ["CMD", "l3proc", "health", "--heartbeat", "/tmp/heartbeat", "--max-age", "900"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 120s
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: any
-        delay: 5s
-      resources:
-        limits:
-          memory: 256M
-
 volumes:
   incoming:
 
@@ -146,8 +82,4 @@ secrets:
   nexrad_r2_secret_access_key:
     external: true
   nexrad_cf_api_token:
-    external: true
-  nexrad_telegram_bot_token:
-    external: true
-  nexrad_telegram_chat_id:
     external: true

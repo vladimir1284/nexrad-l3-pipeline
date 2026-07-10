@@ -36,37 +36,25 @@ a la base remota `nexrad-l3` el 2026-07-10).
   `vol_time` (UTC naive en D1) se parsean con `"Z"` explícita
   (`parseUtc()`). No quitar.
 
-## Pasos pendientes para completar la migración
+## Estado de la migración (2026-07-10)
 
-1. **Permiso del token.** El token de `CLOUDFLARE_API_TOKEN` (en `.env`)
-   solo tiene D1 — el deploy falló con `Authentication error [code: 10000]`.
-   En dash.cloudflare.com → My Profile → API Tokens, añadir al token
-   (o crear uno nuevo con) el permiso **Account → Workers Scripts → Edit**.
-2. **Deploy** (desde este directorio):
-   ```bash
-   npm install
-   set -a; source ../../.env; set +a
-   npx wrangler deploy
-   ```
-3. **Secrets de Telegram** (los mismos valores que los secrets de Swarm
-   `nexrad_telegram_*`; sin ellos el Worker queda en modo solo-log):
-   ```bash
-   npx wrangler secret put TELEGRAM_BOT_TOKEN
-   npx wrangler secret put TELEGRAM_CHAT_ID
-   ```
-4. **Verificar**: `npx wrangler tail nexrad-l3-ops` y esperar al
-   siguiente múltiplo de 5 min — debe llegar el resumen 🩺 del primer
-   chequeo (a Telegram si hay secrets, al log si no). El sweep corre
-   al minuto 17 de cada hora.
-5. **Retirar del stack Swarm**: borrar los servicios `monitor` y `sweep`
-   de `docker-compose.yml` (y los secrets `nexrad_telegram_*` que solo
-   ellos usan), redeploy del stack en Portainer (*Pull and redeploy*).
+Hecho: deploy (`npx wrangler deploy` con token con permiso Workers
+Scripts Edit), secrets de Telegram puestos (`wrangler secret put
+TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`), primer chequeo del monitor
+verificado en el tail (23:20 UTC — 3 sitios 🟢, resumen 🩺 enviado a
+Telegram), servicios `monitor` y `sweep` retirados de
+`docker-compose.yml` y docs actualizadas.
+
+Pendiente:
+
+1. **Verificar el sweep** en el tail al minuto 17 de la hora
+   (`npx wrangler tail nexrad-l3-ops`).
+2. **Redeploy del stack en Portainer** (*Pull and redeploy*) para que
+   tome el `docker-compose.yml` sin `monitor`/`sweep`; borrar los
+   secrets de Swarm `nexrad_telegram_*` que solo ellos usaban.
    Mientras convivan, no pasa nada grave: sweeps duplicados son
    idempotentes y las alertas llegan por duplicado.
-6. **Actualizar docs**: `docs/operacion.md` (tabla de servicios, diagrama,
-   prueba de alertas con `docker service scale`) y `CLAUDE.md` (sección
-   Despliegue) para reflejar 2 servicios en Swarm + este Worker.
-7. **Decidir el destino del código Python** (`ingest/monitor.py`,
+3. **Decidir el destino del código Python** (`ingest/monitor.py`,
    `ingest/retention/`): borrarlos con sus tests una vez validado el
    Worker en producción, o conservarlos como herramienta manual
    (`l3proc sweep/monitor`). Duplicado permanente = drift — no dejarlos

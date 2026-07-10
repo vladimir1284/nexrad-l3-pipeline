@@ -54,7 +54,7 @@ Es el hermano "cloud/demo" de **LAMULA-Ingest**: misma lógica de decodificació
 
 ## Despliegue
 
-Docker Swarm de **nodo único**, imagen única (`Dockerfile`, entrypoint `l3proc`) desde ghcr. Stack en `docker-compose.yml`: servicios `poller` + `processor` con volumen compartido, secrets de Swarm (R2 keys, token CF) vía convención `*_FILE` de `ingest/config.py`, healthchecks `l3proc health`. Deploy: `docker stack config -c docker-compose.yml | docker stack deploy -c - nexrad` (stack deploy no interpola `${VARS}`). Alertas por Telegram en F5.
+Docker Swarm de **nodo único**, imagen única (`Dockerfile`, entrypoint `l3proc`) desde ghcr. Stack en `docker-compose.yml`: servicios `poller` + `processor` con volumen compartido, secrets de Swarm (R2 keys, token CF) vía convención `*_FILE` de `ingest/config.py`, healthchecks `l3proc health`. Deploy: `docker stack config -c docker-compose.yml | docker stack deploy -c - nexrad` (stack deploy no interpola `${VARS}`). Monitor de frescura (Telegram) y sweep de retención corren fuera del VPS, en el Worker de Cloudflare `nexrad-l3-ops` (`workers/ops/`, dos crons, estado en tabla D1 `ops_monitor_state`) — un monitor dentro del VPS no alerta cuando el VPS muere.
 
 ## Alcance del demo
 
