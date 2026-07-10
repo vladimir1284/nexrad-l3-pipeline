@@ -72,3 +72,11 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ github.sha }}
+      # Smoke test DENTRO de la imagen: los tests de pytest corren en el venv
+      # del runner y no detectan libs de sistema ausentes en la base slim
+      # (p.ej. libexpat que rasterio enlaza del sistema).
+      - name: Smoke test de la imagen
+        run: |
+          docker run --rm --entrypoint python \
+            ghcr.io/${{ github.repository }}:${{ github.sha }} \
+            -c "import rasterio, metpy, ingest.watcher, ingest.poller; print('imports ok')"
