@@ -12,3 +12,7 @@ dist/
 # entornos y datos locales (solo raíz; tests/data va al repo)
 .env
 /data/
+
+# workers (wrangler)
+node_modules/
+workers/**/.wrangler/

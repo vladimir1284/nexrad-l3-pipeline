@@ -1,0 +1,14 @@
+{
+  "name": "nexrad-l3-ops",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev --test-scheduled",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "^4",
+    "@cloudflare/workers-types": "^5",
+    "typescript": "^5"
+  }
+}

@@ -1,0 +1,37 @@
+// Worker de operación: monitor de frescura E2E + sweep de retención.
+// Reemplaza a los servicios `monitor` y `sweep` del stack Swarm.
+//
+// Deploy:   npx wrangler deploy          (desde workers/ops/)
+// Secrets:  npx wrangler secret put TELEGRAM_BOT_TOKEN
+//           npx wrangler secret put TELEGRAM_CHAT_ID
+// (sin secrets de Telegram el monitor funciona igual y deja todo en logs)
+{
+  "name": "nexrad-l3-ops",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "triggers": {
+    // El handler despacha por expresión: */5 → monitor, 17 * → sweep.
+    "crons": ["*/5 * * * *", "17 * * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nexrad-l3",
+      "database_id": "d7b5d89f-d33c-46ff-8ae9-a1116662670e"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "nexrad-l3"
+    }
+  ],
+  "vars": {
+    "NEXRAD_SITES": "AMX,BYX,JUA",
+    "MAX_AGE_MIN": "30",
+    "WINDOW_HOURS": "72"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
