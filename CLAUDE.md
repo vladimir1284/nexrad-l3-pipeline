@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Estado del repo
 
-Implementación en curso siguiendo `docs/plan-implementacion.md` (fases con puertas de validación). F0–F4 implementadas: núcleo offline N0B (decode→grid→COG), storage R2/D1, servicio watcher + injector de replay, poller S3 + stack Swarm. Pendiente: F5 (retención + monitor de frescura + alertas Telegram) y F6 (resto de productos + fenómenos + VWP). Validaciones manuales del usuario por fase en `docs/validaciones.md` (QGIS, Cloudflare, 24 h de frescura).
+Implementación en curso siguiendo `docs/plan-implementacion.md` (fases con puertas de validación). F0–F5 implementadas: núcleo offline N0B (decode→grid→COG), storage R2/D1, watcher + replay, poller S3, stack Swarm desplegado en producción (VPS con Portainer), retención + reconciliación + monitor de frescura con Telegram. Pendiente: puertas de operación (24 h de frescura F4, prueba Telegram F5) y F6 (resto de productos + fenómenos + VWP). Validaciones manuales del usuario por fase en `docs/validaciones.md`.
 
 ## Comandos
 
