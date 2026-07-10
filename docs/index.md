@@ -19,3 +19,4 @@ Es el hermano "cloud/demo" de **LAMULA-Ingest**: misma lógica de dominio NEXRAD
 - [Decisiones de diseño](decisiones.md) — decisiones cerradas y sus motivos.
 - [Productos](productos.md) — tabla de productos con geometrías nativas reales.
 - [Plan de implementación](plan-implementacion.md) — fases, puertas de validación y despliegue en Swarm.
+- [Operación del stack](operacion.md) — responsabilidades de cada servicio, flujo de un producto y diagnóstico.
