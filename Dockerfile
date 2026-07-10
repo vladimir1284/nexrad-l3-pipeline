@@ -2,6 +2,12 @@
 # (l3proc poll) y de procesador (l3proc watch) — el stack elige el comando.
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
+# libexpat1: el wheel manylinux de rasterio la enlaza del sistema y la
+# imagen slim no la trae (ImportError: libexpat.so.1 al importar rasterio).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libexpat1 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
