@@ -16,15 +16,25 @@ Verificados contra el feed real el **2026-07-04** parseando muestras de `KAMX`/`
 | Hidrometeorología | Precip 1h (170 / `DAA`) | 360 × 920 radial, 0.25 km × 1°, 230 km | 1840 × 1840 @ 0.25 km |
 | Hidrometeorología | Precip 3h (173 / `DU3`) | 360 × 920 radial, 0.25 km × 1°, 230 km | 1840 × 1840 @ 0.25 km |
 | Hidrometeorología | Precip storm-total (172 / `DTA`) | 360 × 920 radial, 0.25 km × 1°, 230 km | 1840 × 1840 @ 0.25 km |
-| Cinemática | VAD/VWP (48 / `NVW`) | vectores, no-raster | — (D1) |
-| Fenómenos | Mesociclones (141 / `NMD`) | no-raster | — (D1) |
-| Fenómenos | Tracking de celdas (58 / `NST`) | no-raster | — (D1) |
-| Fenómenos | Granizo (59 / `NHI`) | no-raster, **episódico** | — (D1) |
-| Fenómenos | TVS (61 / `NTV`) | no-raster, **episódico** | — (D1) |
+| Cinemática | VAD/VWP (48 / `NVW`) | vectores, no-raster | — (tabla `vwp` en D1) |
+| Fenómenos | Mesociclones (141 / `NMD`) | no-raster | — (tabla `phenomena`, kind `meso`) |
+| Fenómenos | Tracking de celdas (58 / `NST`) | no-raster | — (tabla `phenomena`, kind `storm_cell`) |
 
-`NHI`/`NTV` solo se generan cuando hay celdas activas — su ausencia no es fallo del pipeline.
+!!! warning "NHI y TVS fuera del alcance (revisión 2026-07-10)"
+    Los productos 59/`NHI` (granizo) y 61/`NTV` (TVS) **no fluyen en el bucket**: barrido de junio–julio 2026 en sitios con tormenta activa = 0 claves. La señal de tornado viaja igualmente en la **columna TVS del NMD** (atributo `tvs` de cada mesociclón en D1); el granizo queda sin cobertura en el demo.
 
-Los COG resultantes en uint8/uint16 comprimido pesan pocos MB en el peor caso. Todos bajo el cap de textura WebGL de 4096 px.
+Los COG resultantes en uint8 comprimido pesan pocos cientos de KB. Todos bajo el cap de textura WebGL de 4096 px.
+
+## Calibración de los COG
+
+Contrato único para el viewer: `físico = nivel · value_scale + value_offset` (niveles ≥ 2; 0 = below threshold/nodata, 1 = range folded). Donde la codificación nativa no es lineal, el pipeline re-encodea:
+
+| Producto | Codificación nativa | En el COG |
+|---|---|---|
+| `N0B`/`N0G` | lineal (thresholds ×10) | niveles nativos tal cual (dBZ / kt) |
+| `EET` | bits 0–6 = topes kft + 2; bit 7 = flag *topped* | flag enmascarado; lineal en kft |
+| `DVL` | float16 NEXRAD (bias 16, no IEEE); lineal hasta nivel 20, logarítmico encima | re-encodeado lineal @ 0.35 kg/m² |
+| `DAA`/`DU3`/`DTA` | scale/offset float32 en halfwords, centésimas de pulgada | niveles nativos; scale/offset convertidos a mm |
 
 ## Muestras para desarrollo
 

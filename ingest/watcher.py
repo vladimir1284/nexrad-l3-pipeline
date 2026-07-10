@@ -27,6 +27,7 @@ from ingest.decoder.level3 import RadialProduct, UnsupportedProductError, decode
 from ingest.gridding.aeqd import AeqdGrid, grid_radial
 from ingest.gridding.cog import write_cog
 from ingest.phenomena.parse import PhenomenaProduct, parse_file
+from ingest.phenomena.vwp import VwpProduct, parse_vwp_file
 from ingest.storage.publish import PublishResult
 
 log = logging.getLogger("l3proc")
@@ -35,19 +36,21 @@ log = logging.getLogger("l3proc")
 Publisher = Callable[[Path, RadialProduct, AeqdGrid], PublishResult]
 # callable(php) -> nº de registros publicados
 PhenomenaPublisher = Callable[[PhenomenaProduct], int]
+VwpPublisher = Callable[[VwpProduct], int]
 
 
 @dataclass(frozen=True)
 class Publishers:
     raster: Publisher
     phenomena: PhenomenaPublisher
+    vwp: VwpPublisher
 
 
 def build_publisher() -> Publishers:
     """Publishers reales R2+D1 con configuración del entorno."""
     from ingest.config import StorageConfig
     from ingest.storage.d1 import D1Client
-    from ingest.storage.publish import publish_cog, publish_phenomena
+    from ingest.storage.publish import publish_cog, publish_phenomena, publish_vwp
     from ingest.storage.r2 import R2Client
 
     cfg = StorageConfig.from_env()
@@ -57,6 +60,7 @@ def build_publisher() -> Publishers:
     return Publishers(
         raster=lambda cog, prod, grid: publish_cog(cog, prod, grid, r2, d1),
         phenomena=lambda php: publish_phenomena(php, d1),
+        vwp=lambda vwp: publish_vwp(vwp, d1),
     )
 
 
@@ -96,12 +100,24 @@ class ProductProcessor:
         n = self._publishers.phenomena(php)
         return f"d1://phenomena ({n} registros)"
 
+    def _process_vwp(self, vwp: VwpProduct) -> str:
+        if self._publishers is None:
+            stamp = vwp.vol_time.strftime("%Y%m%d_%H%M%S")
+            out = self._out_dir() / f"{vwp.site_id}_NVW_{stamp}.json"
+            out.write_text(json.dumps([lv.__dict__ for lv in vwp.levels], indent=1))
+            return f"{out} ({len(vwp.levels)} niveles)"
+        n = self._publishers.vwp(vwp)
+        return f"d1://vwp ({n} niveles)"
+
     def process(self, raw: Path) -> None:
         t0 = time.monotonic()
         try:
             dest = self._process_raster(decode_file(raw))
         except UnsupportedProductError:
-            dest = self._process_phenomena(parse_file(raw))
+            try:
+                dest = self._process_phenomena(parse_file(raw))
+            except UnsupportedProductError:
+                dest = self._process_vwp(parse_vwp_file(raw))
         log.info("%s → %s (%.2f s)", raw.name, dest, time.monotonic() - t0)
 
 

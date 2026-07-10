@@ -81,8 +81,7 @@ Setup: bot de Telegram existente — crear los secrets `nexrad_telegram_bot_toke
 
 ## F6 — Productos restantes y fenómenos
 
-1. Golden tests automáticos por producto; manual: abrir en QGIS un COG de cada nuevo producto raster (N0G/EET/DVL/DAA/DU3/DTA) y repetir el checklist de F1 (ubicación, calibración plausible: velocidades ±kt, topes en km/kft, precip en mm/in según unidad declarada).
-2. Buscar en el bucket público un día con tormenta activa en KAMX o TJUA (verano: casi cualquier tarde) que traiga `NHI`/`NTV`/`NMD`/`NST`.
-3. ✅ Tras procesarlo: filas en `phenomena` con lat/lon dentro del área del radar y atributos coherentes (probabilidad de granizo 0–100, celdas con ID estable entre volúmenes consecutivos).
-4. ✅ `vwp` poblado con perfiles de viento a alturas crecientes y direcciones 0–360.
-5. Cruce visual: cargar el COG de reflectividad del mismo volumen en QGIS y los fenómenos como capa de puntos (exportar query a CSV → capa de texto delimitado). ✅ Los marcadores de granizo/meso caen sobre o junto a los núcleos de eco fuerte.
+1. Golden tests automáticos por producto; manual: abrir en QGIS un COG de cada nuevo producto raster (N0G/EET/DVL/DAA/DU3/DTA) y repetir el checklist de F1. Calibración plausible por unidad declarada: velocidad ±64 kt, topes 0–70 kft, VIL 0–80 kg/m², precip en mm. Ojo N0G: nivel 1 = *range folded* (violeta en paletas NWS), esperable en anillos lejanos.
+2. Fenómenos con caso real de tormenta (`NST`/`NMD` — `NHI`/`NTV` no fluyen en el bucket, ver [Productos](productos.md)): ✅ filas en `phenomena` con lat/lon dentro del área del radar, atributos coherentes (RV/DV en kt, MSI, flag `tvs`), celdas con ID estable entre volúmenes consecutivos. *(Verificado 2026-07-10 con la tormenta de ICT/Wichita: 38 celdas + 5 mesos en la D1 real.)*
+3. ✅ `vwp` poblado con perfiles a alturas crecientes y direcciones 0–360. *(Verificado: 13 niveles 400–6000 ft de AMX.)*
+4. Cruce visual: cargar el COG de reflectividad del mismo volumen en QGIS y los fenómenos como capa de puntos (exportar query a CSV → capa de texto delimitado). ✅ Los marcadores de meso/celda caen sobre o junto a los núcleos de eco fuerte.

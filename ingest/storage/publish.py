@@ -158,3 +158,38 @@ def publish_phenomena(php: PhenomenaProduct, d1: D1Client) -> int:
     ]
     d1.execute_many(statements)
     return len(php.records)
+
+
+INSERT_VWP = """
+INSERT INTO vwp (site_id, vol_time, height_ft, wind_dir_deg, wind_speed_kt, rms_kt, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (site_id, vol_time, height_ft) DO UPDATE SET
+    wind_dir_deg = excluded.wind_dir_deg,
+    wind_speed_kt = excluded.wind_speed_kt,
+    rms_kt = excluded.rms_kt
+"""
+
+
+def publish_vwp(vwp, d1: D1Client) -> int:
+    """Publica un perfil VAD. Idempotente por volumen (delete + upsert)."""
+    from ingest.phenomena.vwp import VWP_CODE, VWP_MNEMONIC
+
+    now = utcnow_iso()
+    vol_iso = vwp.vol_time.isoformat(timespec="seconds")
+    statements = [
+        (
+            UPSERT_RADAR,
+            [vwp.site_id, vwp.lat, vwp.lon, vwp.height_m, radar_proj4(vwp.lat, vwp.lon), now, now],
+        ),
+        (UPSERT_PRODUCT, [VWP_CODE, VWP_MNEMONIC, "kt", "vwp"]),
+        ("DELETE FROM vwp WHERE site_id = ? AND vol_time = ?", [vwp.site_id, vol_iso]),
+    ]
+    statements += [
+        (
+            INSERT_VWP,
+            [vwp.site_id, vol_iso, lv.height_ft, lv.wind_dir_deg, lv.wind_speed_kt, lv.rms_kt, now],
+        )
+        for lv in vwp.levels
+    ]
+    d1.execute_many(statements)
+    return len(vwp.levels)

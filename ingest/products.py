@@ -51,8 +51,13 @@ PHENOMENA_PRODUCTS: dict[int, tuple[str, str]] = {
 }
 
 
+VWP_MNEMONIC = "NVW"  # 48 — perfil de viento VAD, camino propio a la tabla vwp
+
+
 def all_mnemonics() -> list[str]:
     """Todos los productos que el poller baja por defecto."""
-    return [spec.mnemonic for spec in RASTER_PRODUCTS.values()] + [
-        mnemo for mnemo, _ in PHENOMENA_PRODUCTS.values()
-    ]
+    return (
+        [spec.mnemonic for spec in RASTER_PRODUCTS.values()]
+        + [mnemo for mnemo, _ in PHENOMENA_PRODUCTS.values()]
+        + [VWP_MNEMONIC]
+    )

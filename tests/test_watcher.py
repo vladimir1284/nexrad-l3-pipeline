@@ -49,7 +49,11 @@ def _publishers(calls_raster, calls_phenom):
         calls_phenom.append((php.mnemonic, php.site_id, len(php.records)))
         return len(php.records)
 
-    return Publishers(raster=raster, phenomena=phenomena)
+    def vwp(v):
+        calls_phenom.append(("NVW", v.site_id, len(v.levels)))
+        return len(v.levels)
+
+    return Publishers(raster=raster, phenomena=phenomena, vwp=vwp)
 
 
 def test_once_con_publisher_no_deja_cog_local(input_dir):

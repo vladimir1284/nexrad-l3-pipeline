@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Estado del repo
 
-Implementación en curso siguiendo `docs/plan-implementacion.md` (fases con puertas de validación). F0–F5 implementadas: núcleo offline N0B (decode→grid→COG), storage R2/D1, watcher + replay, poller S3, stack Swarm desplegado en producción (VPS con Portainer), retención + reconciliación + monitor de frescura con Telegram. Pendiente: puertas de operación (24 h de frescura F4, prueba Telegram F5) y F6 (resto de productos + fenómenos + VWP). Validaciones manuales del usuario por fase en `docs/validaciones.md`.
+Implementación completa (F0–F6) siguiendo `docs/plan-implementacion.md`: núcleo decode→grid→COG para 7 productos raster, fenómenos NST/NMD y VWP a D1, storage R2/D1, watcher + replay, poller S3, stack Swarm en producción (VPS con Portainer), retención + reconciliación + monitor con Telegram. Pendiente: puertas de operación (24 h de frescura F4, prueba Telegram F5) y validaciones QGIS del usuario para F6. Validaciones manuales por fase en `docs/validaciones.md`.
 
 ## Comandos
 
@@ -59,5 +59,5 @@ Docker Swarm de **nodo único**, imagen única (`Dockerfile`, entrypoint `l3proc
 ## Alcance del demo
 
 - Sitios: 2–4 radares **configurables** (`NEXRAD_SITES`, propuesta: AMX, BYX, JUA — ids de 3 chars del feed, sin prefijo K/T). El mapeo a ICAO completo (KAMX…) queda pendiente de config (los ficheros del bucket no traen header WMO).
-- Productos (**códigos legacy 19/20/27/41/78/79/80/94 retirados del feed** — verificado 2026-07-04; el 99 solo fluye en cortes altos): implementado 153/`N0B`; F6 añade 154/`N0G`, 135/`EET`, 134/`DVL`, 170/`DAA`, 173/`DU3`, 172/`DTA`, 48/`NVW`, y fenómenos 141/`NMD`, 58/`NST`, 59/`NHI`, 61/`NTV` (`NHI`/`NTV` episódicos). Registro de specs en `ingest/products.py` (gate width por convención ICD, no viene en el paquete). MetPy 1.7.1 decodifica todos (verificado con muestras reales).
+- Productos (**códigos legacy 19/20/27/41/78/79/80/94 retirados del feed** — verificado 2026-07-04; **59/`NHI` y 61/`NTV` tampoco fluyen** — barrido jun-jul 2026 con tormentas activas = 0 claves; la señal TVS viaja en la columna TVS del NMD): raster 153/`N0B`, 154/`N0G`, 135/`EET`, 134/`DVL`, 170/`DAA`, 173/`DU3`, 172/`DTA`; fenómenos 141/`NMD`, 58/`NST`; perfil 48/`NVW`. Registro de specs y calibraciones en `ingest/products.py` (gate width por convención ICD; calibración por estrategia: linear10/eet/dvl/dpr — DVL usa float16 NEXRAD con bias 16, NO IEEE). El watcher enruta por contenido: raster → fenómenos → vwp.
 - Muestras reales commiteadas en `tests/data/` (golden tests deterministas sin red). Goldens: sha256 de niveles/malla + argmax + counts.
