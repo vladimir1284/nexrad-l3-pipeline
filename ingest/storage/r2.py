@@ -25,6 +25,11 @@ class R2Client:
             config=Config(
                 retries={"max_attempts": 3, "mode": "standard"},
                 s3={"addressing_style": "path"},
+                # Timeouts cortos: un endpoint inaccesible debe ser una
+                # excepción visible en segundos, no un cuelgue silencioso
+                # de minutos (60 s × reintentos por defecto).
+                connect_timeout=10,
+                read_timeout=60,
             ),
         )
 

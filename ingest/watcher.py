@@ -159,8 +159,14 @@ def run_watcher(
         observer.schedule(_EnqueueHandler(q, input_dir), str(input_dir), recursive=False)
         observer.start()
 
+    # Heartbeat inmediato: vivo = heartbeat. Si el primer producto se
+    # atascara (red), el healthcheck no debe matar el arranque en bucle.
+    touch_heartbeat()
+
     # Backlog primero: lo pendiente de antes de arrancar no genera eventos.
-    for path in _backlog(input_dir):
+    pending = _backlog(input_dir)
+    log.info("watcher: %s (%d en backlog)", input_dir, len(pending))
+    for path in pending:
         handle(path)
     touch_heartbeat()
 
