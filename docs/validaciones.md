@@ -71,7 +71,7 @@ Setup una vez: crear los secrets de Swarm (comandos en la cabecera de `docker-co
 
 ## F5 — Retención y alertas
 
-Setup: bot de Telegram existente. Retención y monitor corren en el Worker de Cloudflare `nexrad-l3-ops` (`workers/ops/`; originalmente eran servicios del stack Swarm, migrados el 2026-07-10 para que el monitor sobreviva a la caída del VPS): sweep al minuto 17 de cada hora, monitor cada 5 min con umbral 30 min. Secrets de Telegram vía `wrangler secret put` (sin ellos el monitor queda en modo solo-log). Pasada manual desde dev: `l3proc sweep --once` (reporta sin corregir; exit 1 si hay inconsistencias). Logs: `npx wrangler tail nexrad-l3-ops`.
+Setup: bot de Telegram existente. Retención y monitor corren en el Worker de Cloudflare `nexrad-l3-ops` (`workers/ops/`; originalmente eran servicios del stack Swarm, migrados el 2026-07-10 para que el monitor sobreviva a la caída del VPS): sweep al minuto 17 de cada hora, monitor cada 5 min con umbral 30 min. Secrets de Telegram vía `wrangler secret put` (sin ellos el monitor queda en modo solo-log). Logs: `npx wrangler tail nexrad-l3-ops`.
 
 1. Insertar a mano en D1 un raster con `vol_time` > 72 h apuntando a un objeto R2 real (o esperar 3 días de operación): ✅ la siguiente pasada del sweep lo borra de R2 **y** D1 (en el tail del Worker: `sweep: ... rasters=N`).
 2. Borrar a mano una fila D1 de un raster vigente: ✅ la reconciliación reporta el objeto R2 huérfano en el log (`reconcile: N huérfanos R2 ...`) y con `--fix` lo borra.

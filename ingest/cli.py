@@ -127,86 +127,6 @@ def _cmd_health(args: argparse.Namespace) -> int:
     return 0
 
 
-def _storage_clients():
-    from ingest.config import StorageConfig
-    from ingest.storage.d1 import D1Client
-    from ingest.storage.r2 import R2Client
-
-    cfg = StorageConfig.from_env()
-    r2 = R2Client(cfg.r2_endpoint, cfg.r2_bucket, cfg.r2_access_key_id, cfg.r2_secret_access_key)
-    d1 = D1Client(cfg.cf_account_id, cfg.d1_database_id, cfg.cf_api_token)
-    return r2, d1
-
-
-def _cmd_sweep(args: argparse.Namespace) -> int:
-    from ingest.config import ConfigError
-    from ingest.retention.sweep import reconcile, sweep
-
-    try:
-        r2, d1 = _storage_clients()
-    except ConfigError as exc:
-        print(f"l3proc: {exc}", file=sys.stderr)
-        return 3
-
-    stop = Event()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, lambda *_: stop.set())
-
-    with d1:
-        while True:
-            sweep(d1, r2, window_hours=args.window_hours)
-            report = reconcile(d1, r2, fix=args.fix)
-            if args.once:
-                ok = not report.r2_orphans and not report.dangling_rows
-                return 0 if (ok or args.fix) else 1
-            if args.heartbeat:
-                args.heartbeat.touch()
-            if stop.wait(args.interval):
-                return 0
-
-
-def _cmd_monitor(args: argparse.Namespace) -> int:
-    import os
-
-    from ingest.config import ConfigError, _env
-    from ingest.monitor import TelegramNotifier, run_monitor
-
-    sites = args.site or [
-        s.strip() for s in os.environ.get("NEXRAD_SITES", "").split(",") if s.strip()
-    ]
-    if not sites:
-        print("l3proc: faltan sitios (--site o NEXRAD_SITES)", file=sys.stderr)
-        return 3
-    try:
-        r2, d1 = _storage_clients()
-    except ConfigError as exc:
-        print(f"l3proc: {exc}", file=sys.stderr)
-        return 3
-
-    bot_token = _env("TELEGRAM_BOT_TOKEN", default="")
-    chat_id = _env("TELEGRAM_CHAT_ID", default="")
-    notifier = TelegramNotifier(bot_token, chat_id) if bot_token and chat_id else None
-    if notifier is None:
-        print("l3proc: sin credenciales Telegram — transiciones solo al log", file=sys.stderr)
-
-    stop = Event()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, lambda *_: stop.set())
-
-    with d1:
-        run_monitor(
-            d1,
-            r2,
-            sites,
-            notifier=notifier,
-            max_age_min=args.max_age,
-            interval_s=args.interval,
-            heartbeat=args.heartbeat,
-            stop=stop,
-        )
-    return 0
-
-
 def _cmd_replay(args: argparse.Namespace) -> int:
     from ingest.products import all_mnemonics
     from ingest.replay import inject
@@ -308,35 +228,6 @@ def main(argv: list[str] | None = None) -> int:
         "--max-backlog", type=int, default=200, help="ficheros máx. en backlog (def. 200)"
     )
     p_health.set_defaults(func=_cmd_health)
-
-    p_sweep = sub.add_parser("sweep", help="servicio: retención 72 h + reconciliación R2↔D1")
-    p_sweep.add_argument(
-        "--window-hours", type=float, default=72.0, help="ventana de retención (def. 72)"
-    )
-    p_sweep.add_argument(
-        "--interval", type=float, default=3600.0, help="segundos entre pasadas (def. 3600)"
-    )
-    p_sweep.add_argument(
-        "--once", action="store_true", help="una pasada y salir (exit 1 si hay huérfanos sin --fix)"
-    )
-    p_sweep.add_argument(
-        "--fix", action="store_true", help="borrar huérfanos R2 y filas colgantes al reconciliar"
-    )
-    p_sweep.add_argument("--heartbeat", type=Path, default=None, help="fichero de heartbeat")
-    p_sweep.set_defaults(func=_cmd_sweep)
-
-    p_monitor = sub.add_parser("monitor", help="servicio: frescura E2E + alertas Telegram")
-    p_monitor.add_argument(
-        "--site", action="append", default=None, help="repetible (o env NEXRAD_SITES)"
-    )
-    p_monitor.add_argument(
-        "--max-age", type=float, default=30.0, help="frescura máx. en minutos (def. 30)"
-    )
-    p_monitor.add_argument(
-        "--interval", type=float, default=300.0, help="segundos entre ciclos (def. 300)"
-    )
-    p_monitor.add_argument("--heartbeat", type=Path, default=None, help="fichero de heartbeat")
-    p_monitor.set_defaults(func=_cmd_monitor)
 
     p_replay = sub.add_parser("replay", help="inyecta productos recientes del bucket público")
     p_replay.add_argument("dir", type=Path, help="directorio de entrada del watcher")

@@ -9,7 +9,7 @@ lo simplifican (sin boto3, sin HTTP API firmada).
 
 Dos crons en un solo Worker (`src/index.ts` despacha por expresión):
 
-| Cron | Función | Equivalente Python |
+| Cron | Función | Equivalente Python (borrado en la migración) |
 |---|---|---|
 | `*/5 * * * *` | monitor de frescura E2E + Telegram | `ingest/monitor.py` |
 | `17 * * * *` | retención 72 h + reconciliación R2↔D1 | `ingest/retention/sweep.py` |
@@ -54,11 +54,12 @@ Pendiente:
    secrets de Swarm `nexrad_telegram_*` que solo ellos usaban.
    Mientras convivan, no pasa nada grave: sweeps duplicados son
    idempotentes y las alertas llegan por duplicado.
-3. **Decidir el destino del código Python** (`ingest/monitor.py`,
-   `ingest/retention/`): borrarlos con sus tests una vez validado el
-   Worker en producción, o conservarlos como herramienta manual
-   (`l3proc sweep/monitor`). Duplicado permanente = drift — no dejarlos
-   "por si acaso" sin decisión.
+
+El código Python equivalente (`ingest/monitor.py`, `ingest/retention/`,
+sus tests y los subcomandos `l3proc sweep`/`l3proc monitor`) se borró
+al validar el Worker — decisión del 2026-07-10 para evitar drift de
+implementaciones duplicadas. Está en el historial de git si hiciera
+falta recuperarlo.
 
 ## Typecheck
 
