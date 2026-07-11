@@ -1,5 +1,6 @@
 import json
 
+import numpy as np
 import pytest
 
 from ingest.phenomena.parse import parse_file
@@ -23,12 +24,45 @@ def test_nst_golden_amx():
     assert a8.range_km == pytest.approx(112 * 1.852, rel=0.01)
     assert a8.attrs["movement_deg"] == 130
     assert a8.attrs["movement_kt"] == 34
-    # B9 es celda nueva: sin movimiento
-    assert p.records[4].attrs.get("new") is True
+    # GAB (fila DBZM HGT): dBZ máx + altura
+    assert a8.attrs["dbz_max"] == 53
+    assert a8.attrs["dbz_max_height_kft"] == 15.0
+    # packets 23/24: trayectorias past/forecast en km radar-céntricos
+    assert len(a8.attrs["past"]) == 9
+    assert a8.attrs["past"][0] == [-160.25, -130.75]
+    assert a8.attrs["forecast"] == [[-173.5, -120.25]]
+    # el punto forecast debe cuadrar con la columna "15 MIN 235/114" de la
+    # página tabular — dos fuentes independientes
+    fx, fy = a8.attrs["forecast"][0]
+    az = pytest.approx(235, abs=1)
+    assert float(np.degrees(np.arctan2(fx, fy)) % 360) == az
+    assert float(np.hypot(fx, fy)) / 1.852 == pytest.approx(114, abs=0.5)
+    # X8 tiene past pero no forecast; B9 es celda nueva: sin movimiento ni tracks
+    x8, b9 = p.records[2], p.records[4]
+    assert len(x8.attrs["past"]) == 5 and "forecast" not in x8.attrs
+    assert b9.attrs.get("new") is True
+    assert "past" not in b9.attrs and "forecast" not in b9.attrs
+    assert (b9.attrs["dbz_max"], b9.attrs["dbz_max_height_kft"]) == (43, 16.4)
     # posiciones dentro del alcance del radar de Miami
     for r in p.records:
         assert 22 < r.lat < 29 and -84 < r.lon < -77
         assert r.range_km < 460
+
+
+def test_nst_golden_ict_gab_multipagina():
+    # 38 celdas; el GAB pagina de a 6 y solo lista 36 — las 2 restantes
+    # quedan sin dbz_max, el parser no debe romperse ni cruzar columnas
+    p = parse_file(DATA_DIR / "ICT_NST_2026_07_10_05_07_19")
+
+    assert len(p.records) == 38
+    by_id = {r.cell_id: r for r in p.records}
+    # página 0 del GAB: N1 (primera columna) y Y9 (última)
+    assert by_id["N1"].attrs["dbz_max"] == 65
+    assert by_id["N1"].attrs["dbz_max_height_kft"] == 22.9
+    assert by_id["Y9"].attrs["dbz_max"] == 59
+    assert by_id["Y9"].attrs["dbz_max_height_kft"] == 15.4
+    con_dbz = [r for r in p.records if "dbz_max" in r.attrs]
+    assert len(con_dbz) == 36
 
 
 def test_nmd_golden_ict():

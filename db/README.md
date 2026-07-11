@@ -29,20 +29,17 @@ Reglas:
 
 `attrs` es JSON y por tanto extensible sin migración, pero **sus claves son contrato con el viewer** igual que las columnas: renombrar o cambiar unidades de una clave existente se coordina como cualquier cambio incompatible. Referencia cruzada: página "Contrato de datos" de la doc de [lamula-webviewer](https://github.com/vladimir1284/lamula-webviewer).
 
-Estado actual del parser (`ingest/phenomena/parse.py`) + extensión acordada con el viewer (⏳ pendiente de implementar aquí; prerequisito de la fase F4 del viewer):
+Estado del parser (`ingest/phenomena/parse.py`), prerequisito de la fase F4 del viewer:
 
 | `kind` | Clave | Estado | Contenido |
 |---|---|---|---|
 | `storm_cell` | `azran_nm` | ✅ | `[az_deg, range_nm]` posición radar-céntrica del tabular |
 | `storm_cell` | `movement_deg`, `movement_kt` | ✅ | vector de movimiento |
 | `storm_cell` | `new` | ✅ | celda nueva en este volumen |
-| `storm_cell` | `past`, `forecast` | ⏳ | arrays `[[x_km, y_km], …]` de los packets 23/24 del symbology (SCIT) |
-| `storm_cell` | `vil_kg_m2`, `dbz_max`, `top_kft` | ⏳ | del bloque tabular "STORM CELL ATTRIBUTES" de NST |
-| `storm_cell` | `poh_pct`, `posh_pct`, `hail_size_in` | ⏳ | probabilidad (POH/POSH) y tamaño de granizo, mismo tabular (NHI/NTV no fluyen en el feed; esta es la señal de granizo) |
+| `storm_cell` | `past`, `forecast` | ✅ | arrays `[[x_km, y_km], …]` de los packets 23/24 del symbology (SCIT); sin la posición actual, que ya es la del registro. Celdas nuevas no traen ninguno; puede venir uno solo de los dos |
+| `storm_cell` | `dbz_max`, `dbz_max_height_kft` | ✅ | reflectividad máxima de la celda (dBZ) y su altura (kft), del bloque Graphic Alphanumeric del NST (fila `DBZM HGT`). El GAB pagina de a 6 celdas y puede listar menos celdas que el symbology — la clave falta en las que se quedan fuera |
 | `meso` | `radius_km` + atributos del tabular NMD | ✅ | atributos del mesociclón; la columna TVS del NMD es la señal TVS |
 
-Notas para la implementación ⏳:
+**Fuera de alcance — datos que no distribuye el feed** (acordado 2026-07: se recorta la extensión original; coordinado con el viewer): VIL por celda, echo top por celda (`vil_kg_m2`, `top_kft`) y granizo (`poh_pct`, `posh_pct`, `hail_size_in`). Viven en los productos SS (62) y HI (59), que **no fluyen en el bucket de Unidata** (sondeo 0 claves con tormentas activas, 2026-07-10); el NST no los trae — la tabla "STORM CELL ATTRIBUTES" de los visores es un compuesto cliente de STI+SS+HI. VIL y echo top sí existen como rasters de grilla (DVL, EET).
 
-- Solo parser + tests golden — cero migración D1, cero cambio en el viewer hasta que aterrice.
-- Los charts de tendencia del viewer arman series temporales por `cell_id` cross-volumen: el `cell_id` del RPG debe seguir guardándose tal cual (estable entre volúmenes).
-- Los goldens de fenómenos existentes cambian de sha al crecer `attrs` — regenerarlos es parte de la tarea, con verificación manual de 2–3 celdas contra el tabular crudo.
+Para los charts de tendencia del viewer (series temporales por `cell_id` cross-volumen): el `cell_id` del RPG se guarda tal cual (estable entre volúmenes).

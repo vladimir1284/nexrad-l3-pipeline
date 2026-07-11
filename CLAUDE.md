@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Estado del repo
 
-Implementación completa (F0–F6) siguiendo `docs/plan-implementacion.md`: núcleo decode→grid→COG para 7 productos raster, fenómenos NST/NMD y VWP a D1, storage R2/D1, watcher + replay, poller S3, stack Swarm en producción (VPS con Portainer), retención + reconciliación + monitor con Telegram. Pendiente: puertas de operación (24 h de frescura F4, prueba Telegram F5), validaciones QGIS del usuario para F6, y **extensión de `phenomena.attrs` acordada con el viewer** (packets 23/24 SCIT + tabular STORM CELL ATTRIBUTES de NST → past/forecast, VIL, dBZ máx, top, POH/POSH/granizo; spec y claves en `db/README.md`; prerequisito de la fase F4 de lamula-webviewer). Validaciones manuales por fase en `docs/validaciones.md`.
+Implementación completa (F0–F6) siguiendo `docs/plan-implementacion.md`: núcleo decode→grid→COG para 7 productos raster, fenómenos NST/NMD y VWP a D1, storage R2/D1, watcher + replay, poller S3, stack Swarm en producción (VPS con Portainer), retención + reconciliación + monitor con Telegram. Pendiente: puertas de operación (24 h de frescura F4, prueba Telegram F5) y validaciones QGIS del usuario para F6. La extensión de `phenomena.attrs` para el viewer está implementada (past/forecast de packets 23/24 + dBZ máx/altura del GAB); VIL/top/granizo por celda quedaron **fuera de alcance** — viven en SS (62)/HI (59), que el bucket no distribuye (verificado 2026-07-10; claves y recorte en `db/README.md`). Validaciones manuales por fase en `docs/validaciones.md`.
 
 ## Comandos
 

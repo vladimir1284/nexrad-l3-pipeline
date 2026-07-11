@@ -2,16 +2,20 @@
 
 Cobertura (verificada contra el feed real 2026-07-10):
 
-- 58/NST — tracking de celdas (SCIT): posición + ID por celda del bloque
-  Symbology, movimiento/posiciones previstas de la página tabular.
+- 58/NST — tracking de celdas (SCIT): posición + ID por celda y
+  trayectorias past/forecast (packets 23/24) del bloque Symbology,
+  movimiento de la página tabular, dBZ máx + altura del bloque Graphic
+  Alphanumeric (GAB).
 - 141/NMD — mesociclones (MDA): círculo (posición + radio) + ID del
   Symbology, atributos (RV/DV, base/profundidad, flag TVS, MSI) de la
   página tabular.
 
-Los productos NHI (granizo) y NTV (TVS) **no fluyen en el bucket**
-(verificado barriendo junio-julio 2026 en sitios con tormentas): la
-señal de tornado queda cubierta por la columna TVS del NMD; granizo sin
-cobertura en el demo.
+Los productos NHI (granizo), NTV (TVS) y NSS (storm structure: VIL/top
+por celda) **no fluyen en el bucket** (verificado barriendo junio-julio
+2026 en sitios con tormentas): la señal de tornado queda cubierta por la
+columna TVS del NMD; granizo y VIL/top por celda sin cobertura en el
+demo. El propio NST no los trae — la tabla "STORM CELL ATTRIBUTES" de
+los visores es un compuesto cliente de STI+SS+HI.
 
 Posiciones: MetPy entrega x/y en km radar-céntricos (este/norte) — son
 coordenadas AEQD, la conversión a lat/lon es la inversa exacta de la
@@ -63,6 +67,32 @@ def _polar(x_km: float, y_km: float) -> tuple[float, float]:
 # ── NST (58) ────────────────────────────────────────────────────────────
 # Fila tabular: "  A8     231/112   130/ 34   ..." (movimiento o NEW)
 _NST_ROW = re.compile(r"^\s*(\w\d)\s+(\d+)/\s*(\d+)\s+(?:(\d+)/\s*(\d+)|NEW)", re.MULTILINE)
+# GAB: fila "STORM ID" con IDs letra+dígito; fila "DBZM HGT" con pares dBZ altura-kft
+_GAB_ID = re.compile(r"\b([A-Z]\d)\b")
+_GAB_DBZM = re.compile(r"(\d+)\s+(\d+\.\d+)")
+
+
+def _nst_gab_attrs(f: Level3File) -> dict[str, dict]:
+    """dBZ máx + altura por celda del bloque Graphic Alphanumeric.
+
+    Cada página del GAB es una tabla de hasta 6 celdas: fila STORM ID y
+    fila DBZM HGT alineadas por columnas — se emparejan por posición.
+    """
+    out: dict[str, dict] = {}
+    for page in getattr(f, "graph_pages", None) or []:
+        ids: list[str] = []
+        dbzm: list[tuple[str, str]] = []
+        for item in page:
+            text = item.get("text", "") if isinstance(item, dict) else ""
+            label = text.strip()[:8]
+            if label == "STORM ID":
+                ids = _GAB_ID.findall(text)
+            elif label == "DBZM HGT":
+                dbzm = _GAB_DBZM.findall(text)
+        if len(ids) == len(dbzm):
+            for cid, (dbz, hgt_kft) in zip(ids, dbzm, strict=True):
+                out[cid] = {"dbz_max": int(dbz), "dbz_max_height_kft": float(hgt_kft)}
+    return out
 
 
 def _parse_nst(f: Level3File) -> list[tuple[str, float, float, dict]]:
@@ -78,12 +108,30 @@ def _parse_nst(f: Level3File) -> list[tuple[str, float, float, dict]]:
                 attrs["new"] = True
             tab_attrs[cid] = attrs
 
-    out = []
+    gab_attrs = _nst_gab_attrs(f)
+
+    # packets 23/24 (SCIT): track[0] es la posición actual de la celda —
+    # misma codificación cuarto-de-km que el packet Storm ID, la
+    # asociación por igualdad exacta de coordenadas es segura
+    cells: list[tuple[str, float, float]] = []
+    tracks: dict[tuple[float, float], dict] = {}
     for layer in getattr(f, "sym_block", None) or []:
         for pkt in layer:
-            if isinstance(pkt, dict) and pkt.get("type") == "Storm ID":
-                cid = str(pkt["id"]).strip()
-                out.append((cid, float(pkt["x"]), float(pkt["y"]), tab_attrs.get(cid, {})))
+            if not isinstance(pkt, dict):
+                continue
+            if pkt.get("type") == "Storm ID":
+                cells.append((str(pkt["id"]).strip(), float(pkt["x"]), float(pkt["y"])))
+            elif "track" in pkt and pkt.get("markers"):
+                markers = pkt["markers"]
+                first = markers[0] if isinstance(markers, list) else markers
+                key = "past" if "past storm position" in first else "forecast"
+                track = [[float(x), float(y)] for x, y in pkt["track"]]
+                tracks.setdefault((track[0][0], track[0][1]), {})[key] = track[1:]
+
+    out = []
+    for cid, x, y in cells:
+        attrs = {**tab_attrs.get(cid, {}), **gab_attrs.get(cid, {}), **tracks.get((x, y), {})}
+        out.append((cid, x, y, attrs))
     return out
 
 
