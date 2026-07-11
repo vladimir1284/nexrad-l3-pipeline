@@ -16,3 +16,4 @@ dist/
 # workers (wrangler)
 node_modules/
 workers/**/.wrangler/
+.wrangler/cache/pages.json
