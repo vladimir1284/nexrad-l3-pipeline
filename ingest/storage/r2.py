@@ -36,8 +36,16 @@ class R2Client:
     def upload_file(self, path: str | Path, key: str, content_type: str = "image/tiff") -> None:
         # put_object (no multipart): los COG del demo son de pocos MB y así
         # la subida es atómica — o el objeto está entero o no está.
+        # cache-control inmutable: la clave incluye vol_time, nunca se
+        # reescribe (consumidor: LAMULA-WebViewer, fetch único a blob).
         with open(path, "rb") as fh:
-            self._s3.put_object(Bucket=self.bucket, Key=key, Body=fh, ContentType=content_type)
+            self._s3.put_object(
+                Bucket=self.bucket,
+                Key=key,
+                Body=fh,
+                ContentType=content_type,
+                CacheControl="public, max-age=31536000, immutable",
+            )
 
     def head(self, key: str) -> dict | None:
         """Metadata del objeto (ContentLength incluido) o None si no existe."""
