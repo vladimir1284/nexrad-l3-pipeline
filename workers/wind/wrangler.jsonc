@@ -1,0 +1,40 @@
+// Worker de ingesta de viento GFS 10 m → JSON en R2 + filas en wind_grids.
+// Reemplaza al servicio `wind` del stack Swarm (la referencia Python queda
+// en ingest/wind.py para validación cruzada).
+//
+// Deploy: npx wrangler deploy    (desde workers/wind/)
+// Prueba local del cron: npx wrangler dev --test-scheduled
+//   → curl "http://localhost:8787/__scheduled?cron=37+*+*+*+*"
+{
+  "name": "nexrad-l3-wind",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "triggers": {
+    // horario, lejos del :17 del sweep de nexrad-l3-ops
+    "crons": ["37 * * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nexrad-l3",
+      "database_id": "d7b5d89f-d33c-46ff-8ae9-a1116662670e"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "nexrad-l3"
+    }
+  ],
+  "vars": {
+    "WINDOW_HOURS": "72",
+    "LOOKAHEAD_HOURS": "2",
+    "NOMADS_PAUSE_MS": "2000",
+    // tope de descargas NOMADS por corrida: cortesía + margen de subrequests.
+    // Backfill de 72 h converge en ~4 corridas; lo fresco sale primero.
+    "MAX_FETCHES": "20"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

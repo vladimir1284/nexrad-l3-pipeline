@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Estado del repo
 
-Implementación completa (F0–F6) siguiendo `docs/plan-implementacion.md`: núcleo decode→grid→COG para 7 productos raster, fenómenos NST/NMD y VWP a D1, storage R2/D1, watcher + replay, poller S3, stack Swarm en producción (VPS con Portainer), retención + reconciliación + monitor con Telegram. Pendiente: puertas de operación (24 h de frescura F4, prueba Telegram F5) y validaciones QGIS del usuario para F6. La extensión de `phenomena.attrs` para el viewer está implementada (past/forecast de packets 23/24 + dBZ máx/altura del GAB); VIL/top/granizo por celda quedaron **fuera de alcance** — viven en SS (62)/HI (59), que el bucket no distribuye (verificado 2026-07-10; claves y recorte en `db/README.md`). Validaciones manuales por fase en `docs/validaciones.md`.
+Implementación completa (F0–F6) siguiendo `docs/plan-implementacion.md`: núcleo decode→grid→COG para 7 productos raster, fenómenos NST/NMD y VWP a D1, storage R2/D1, watcher + replay, poller S3, stack Swarm en producción (VPS con Portainer), retención + reconciliación + monitor con Telegram. Además: capa de **viento GFS 0.25° 10 m** para el viewer (spec acordada jul-2026): Worker `nexrad-l3-wind` (`workers/wind/`, cron horario, decoder GRIB2 propio) + migración `0003_wind_grids.sql`; sweep/reconciliación de ops cubren `wind_grids`; contrato en `db/README.md`. La referencia Python (`ingest/wind.py`, `l3proc wind`) implementa lo mismo con eccodes — se conserva para validación cruzada (`scripts/validate_wind_worker.py`), no se despliega. Pendiente: puertas de operación (24 h de frescura F4, prueba Telegram F5) y validaciones QGIS del usuario para F6. La extensión de `phenomena.attrs` para el viewer está implementada (past/forecast de packets 23/24 + dBZ máx/altura del GAB); VIL/top/granizo por celda quedaron **fuera de alcance** — viven en SS (62)/HI (59), que el bucket no distribuye (verificado 2026-07-10; claves y recorte en `db/README.md`). Validaciones manuales por fase en `docs/validaciones.md`.
 
 ## Comandos
 
@@ -16,6 +16,8 @@ uv run l3proc process <crudo> [-o dir] [--publish] # un producto → COG (→ R2
 uv run l3proc watch <dir> [--once|--no-publish]    # servicio procesador
 uv run l3proc poll <dir> --site AMX [--interval 60] # servicio poller del bucket público
 uv run l3proc replay <dir> --site AMX -n 5         # inyectar productos reales puntuales
+uv run l3proc wind --once                          # referencia viento GFS (validación; el Worker es autoritativo)
+uv run python scripts/validate_wind_worker.py      # validación cruzada Worker↔Python (credenciales en env)
 uv run python scripts/e2e_local.py                 # puerta F3 (necesita credenciales en env)
 uvx --with mkdocs-material mkdocs serve            # preview docs en :8000
 uvx --with mkdocs-material mkdocs build --strict   # build docs (lo que corre CI)
@@ -35,8 +37,9 @@ Es el hermano "cloud/demo" de **LAMULA-Ingest**: misma lógica de decodificació
 
 1. **Poller** (`ingest/poller.py`, `l3proc poll`): cada ~60 s lista claves nuevas por sitio×producto en el bucket (claves `SITE_MNEMO_YYYY_MM_DD_HH_MM_SS`, orden lexicográfico = cronológico) y las deposita en el directorio de entrada con escritura atómica (tmp+rename). Watermark por par persistido en `.poll_state.json`; catch-up capeado (`--catchup`, def. 6). Sitios/productos por flags o env `NEXRAD_SITES`/`NEXRAD_PRODUCTS`.
 2. **Procesador** (`ingest/watcher.py`, `l3proc watch`): watcher inotify/watchdog; al arrancar consume backlog, luego eventos `on_closed`/`on_moved`. Decodifica con MetPy (`Level3File`), grilla polar → malla AEQD centrada en el radar (nearest neighbor sobre niveles crudos uint8), escribe COG con Rasterio (scale/offset embebidos, CRS proj4 AEQD, overviews) y publica: objeto a R2, metadata a D1 (upserts idempotentes, dimensiones→hechos). Procesados se borran; fallidos a `failed/`. Heartbeat por mtime → `l3proc health` (HEALTHCHECK del stack).
-3. **R2**: paths `{site}/{mnemo}/{YYYY}/{MM}/{DD}/{site}_{mnemo}_{YYYYMMDD_HHMMSS}.tif`.
-4. **D1**: SQLite serverless vía HTTP API (sin transacciones entre requests). Tablas: `radars` (catálogo dinámico, **sin radares hardcodeados**, columna `proj4` que el viewer registra tal cual), `products`, `rasters` (calibración `value_scale`/`value_offset`), `phenomena`, `vwp`. Schema en `db/migrations/` = contrato con el viewer; wrangler config en `db/wrangler.jsonc` (aplicar desde `db/`).
+3. **R2**: paths `{site}/{mnemo}/{YYYY}/{MM}/{DD}/{site}_{mnemo}_{YYYYMMDD_HHMMSS}.tif`; viento `{site}/WIND/{YYYY}/{MM}/{DD}/{site}_WIND_{ts}_c{ciclo}f{FFF}.json` (inmutable, el ciclo en el nombre).
+4. **D1**: SQLite serverless vía HTTP API (sin transacciones entre requests). Tablas: `radars` (catálogo dinámico, **sin radares hardcodeados**, columna `proj4` que el viewer registra tal cual), `products`, `rasters` (calibración `value_scale`/`value_offset`), `phenomena`, `vwp`, `wind_grids`. Schema en `db/migrations/` = contrato con el viewer; wrangler config en `db/wrangler.jsonc` (aplicar desde `db/`).
+5. **Wind** (Worker `nexrad-l3-wind`, `workers/wind/`, aparte del flujo NEXRAD): cron horario GFS 0.25° 10 m vía filtro GRIB de NOMADS (OPeNDAP retirado — SCN 25-81) — un GRIB por (ciclo, fh 0–12) con bbox unión de los sitios de `radars` (± 6°, bordes a múltiplos de 0.25°), decoder GRIB2 propio en TS (`grid_simple`; ojo: el filtro re-empaqueta subsets **sur→norte**, se normaliza a norte→sur), recorte local por sitio (subset puro), JSON u/v (m/s, 2 decimales, row-major desde NO) a R2 + upsert a `wind_grids` que solo gana con `cycle_time` mayor; borra el objeto reemplazado tras el upsert. Estado = D1; idempotente; presupuesto `MAX_FETCHES` por corrida (valid_times del más nuevo al más viejo). Referencia Python espejo en `ingest/wind.py` (eccodes) para validación cruzada.
 
 ## Decisiones de diseño (no re-litigar sin motivo)
 
@@ -54,7 +57,7 @@ Es el hermano "cloud/demo" de **LAMULA-Ingest**: misma lógica de decodificació
 
 ## Despliegue
 
-Docker Swarm de **nodo único**, imagen única (`Dockerfile`, entrypoint `l3proc`) desde ghcr. Stack en `docker-compose.yml`: servicios `poller` + `processor` con volumen compartido, secrets de Swarm (R2 keys, token CF) vía convención `*_FILE` de `ingest/config.py`, healthchecks `l3proc health`. Deploy: `docker stack config -c docker-compose.yml | docker stack deploy -c - nexrad` (stack deploy no interpola `${VARS}`). Monitor de frescura (Telegram) y sweep de retención corren fuera del VPS, en el Worker de Cloudflare `nexrad-l3-ops` (`workers/ops/`, dos crons, estado en tabla D1 `ops_monitor_state`) — un monitor dentro del VPS no alerta cuando el VPS muere.
+Docker Swarm de **nodo único**, imagen única (`Dockerfile`, entrypoint `l3proc`) desde ghcr. Stack en `docker-compose.yml`: servicios `poller` + `processor` con volumen compartido, secrets de Swarm (R2 keys, token CF) vía convención `*_FILE` de `ingest/config.py`, healthchecks `l3proc health`. Deploy: `docker stack config -c docker-compose.yml | docker stack deploy -c - nexrad` (stack deploy no interpola `${VARS}`). Monitor de frescura (Telegram) y sweep de retención corren fuera del VPS, en el Worker de Cloudflare `nexrad-l3-ops` (`workers/ops/`, dos crons, estado en tabla D1 `ops_monitor_state`) — un monitor dentro del VPS no alerta cuando el VPS muere. La ingesta de viento es otro Worker, `nexrad-l3-wind` (`workers/wind/`, cron horario); orden de deploy: ops (con la reconciliación que conoce `wind_grids`) **antes** que wind.
 
 ## Alcance del demo
 

@@ -85,3 +85,14 @@ Setup: bot de Telegram existente. Retención y monitor corren en el Worker de Cl
 2. Fenómenos con caso real de tormenta (`NST`/`NMD` — `NHI`/`NTV` no fluyen en el bucket, ver [Productos](productos.md)): ✅ filas en `phenomena` con lat/lon dentro del área del radar, atributos coherentes (RV/DV en kt, MSI, flag `tvs`), celdas con ID estable entre volúmenes consecutivos. *(Verificado 2026-07-10 con la tormenta de ICT/Wichita: 38 celdas + 5 mesos en la D1 real.)*
 3. ✅ `vwp` poblado con perfiles a alturas crecientes y direcciones 0–360. *(Verificado: 13 niveles 400–6000 ft de AMX.)*
 4. Cruce visual: cargar el COG de reflectividad del mismo volumen en QGIS y los fenómenos como capa de puntos (exportar query a CSV → capa de texto delimitado). ✅ Los marcadores de meso/celda caen sobre o junto a los núcleos de eco fuerte.
+
+## Viento GFS — Worker `nexrad-l3-wind`
+
+Setup: migración `0003_wind_grids.sql` aplicada; Worker `nexrad-l3-ops` **redesplegado antes** (su reconciliación debe conocer `wind_grids`, o borra los JSON `WIND/` como huérfanos); después `npx wrangler deploy` desde `workers/wind/`. Logs: `npx wrangler tail nexrad-l3-wind`.
+
+1. Sin red: `npm test` en `workers/wind/` ✅ decoder GRIB2 reproduce el golden de eccodes sobre un subset real del filtro.
+2. Tras 2–4 corridas del cron (backfill capeado a `MAX_FETCHES`): ✅ `SELECT site_id, COUNT(*), MIN(valid_time), MAX(valid_time) FROM wind_grids GROUP BY site_id` muestra valid_times horarios continuos acercándose a la ventana de 72 h, con `MAX(valid_time)` ≥ now (lookahead 2 h).
+3. Validación cruzada contra la referencia Python (eccodes): `uv run python scripts/validate_wind_worker.py` ✅ `todo consistente` (header exacto, u/v ≤ 0.011 m/s).
+4. En el navegador (o `curl`) un `r2_key` reciente: ✅ JSON válido, `u.length === v.length === nx*ny`, CORS OK desde el viewer.
+5. Cuando NOMADS publique un ciclo nuevo (~3.5–5 h tras 00/06/12/18Z): ✅ los valid_times solapados pasan al ciclo nuevo con `forecast_hour` menor y los objetos viejos desaparecen del bucket (tail: `publicados=N`).
+6. Corrida siguiente sin datos nuevos: ✅ `publicados=0` (idempotencia).

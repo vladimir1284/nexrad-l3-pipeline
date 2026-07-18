@@ -27,7 +27,7 @@ Radares NEXRAD → NOAA/Unidata → bucket S3 público
                       reproyecta AEQD → CRS del mapa en cliente
 ```
 
-Ambos servicios salen de la **misma imagen** (`ghcr.io/vladimir1284/nexrad-l3-pipeline`); el stack de Swarm elige el comando (`poll` / `watch`) y comparten un volumen local.
+Ambos servicios salen de la **misma imagen** (`ghcr.io/vladimir1284/nexrad-l3-pipeline`); el stack de Swarm elige el comando (`poll` / `watch`) y comparten un volumen local. La ingesta de viento GFS no toca el VPS: es un Worker de Cloudflare aparte (`nexrad-l3-wind`).
 
 ## Componentes
 
@@ -49,17 +49,28 @@ Servicio persistente con watcher (inotify/watchdog) sobre el directorio de entra
 
 Procesados se borran; fallidos van a `failed/` para reproceso. Heartbeat por mtime para el healthcheck de Swarm.
 
+### Worker de viento (`nexrad-l3-wind`)
+
+Cron horario en Cloudflare, independiente del flujo NEXRAD y **fuera del VPS**: viento **GFS 0.25° 10 m** (u/v) para la capa de partículas animadas del viewer. Descarga subsets por el filtro GRIB de NOMADS (decenas de KB; un fichero por ciclo×forecast-hour con el bbox unión de todos los sitios, recorte local por sitio — la grilla es regular y los bordes van alineados a múltiplos de 0.25°, subset puro sin resampleo), los decodifica con un decoder GRIB2 propio en TypeScript (`workers/wind/src/grib.ts`, solo `grid_simple` — lo único que el filtro emite; OPeNDAP fue retirado por NOAA, SCN 25-81), convierte a JSON (`header` + `u`/`v` planos en m/s) y publica con bindings nativos: objeto a R2, fila a `wind_grids` en D1.
+
+Sitios: los de la tabla `radars` (radar-agnóstico, nada hardcodeado; dominio `lat/lon ± 6°` por sitio). Ventana: `[now − 72 h, now + 2 h]` con `forecast_hour` 0–12 — ciclos cada 6 h dan valid_times horarios continuos y ~2 h de colchón si un ciclo se retrasa. El estado es D1: el upsert solo gana con `cycle_time` más nuevo, re-ejecutar sin datos nuevos no reescribe nada, y un valid_time fallido no aborta el resto (reintento natural en la corrida siguiente). Cortesía con NOMADS: requests secuenciales con pausa y presupuesto de descargas por corrida (`MAX_FETCHES`; los valid_times se recorren del más nuevo al más viejo, así lo fresco sale primero y el backfill converge en pocas corridas).
+
+La referencia Python (`ingest/wind.py`, `l3proc wind`) implementa la misma lógica con eccodes y sirve para validación cruzada del Worker (`scripts/validate_wind_worker.py`) — no se despliega.
+
 ### Cloudflare R2
 
-Almacén de COGs. Sirve al viewer con CORS + HTTP range requests (el cliente solo descarga los tiles/overviews que necesita). Convención de paths:
+Almacén de COGs (+ JSON de viento). Sirve al viewer con CORS + HTTP range requests (el cliente solo descarga los tiles/overviews que necesita). Convención de paths:
 
 ```
 {site}/{mnemo}/{YYYY}/{MM}/{DD}/{site}_{mnemo}_{YYYYMMDD_HHMMSS}.tif
+{site}/WIND/{YYYY}/{MM}/{DD}/{site}_WIND_{YYYYMMDD}_{HHMMSS}_c{ciclo}f{FFF}.json
 ```
+
+Ambas claves son **inmutables** (`Cache-Control: immutable`): en viento el ciclo va en el nombre — un ciclo más nuevo sube objeto nuevo y borra el anterior tras el upsert en D1.
 
 ### Cloudflare D1
 
-Base SQLite serverless (tier gratuito, misma cuenta que R2). Tablas: catálogo de radares (poblado dinámicamente desde la metadata entrante, sin radares hardcodeados), descriptores de producto, metadata de rasters (clave R2, timestamps, VCP, elevación, calibración, proyección), fenómenos (granizo, mesociclones, TVS, tracking de celdas) y perfiles VWP.
+Base SQLite serverless (tier gratuito, misma cuenta que R2). Tablas: catálogo de radares (poblado dinámicamente desde la metadata entrante, sin radares hardcodeados), descriptores de producto, metadata de rasters (clave R2, timestamps, VCP, elevación, calibración, proyección), fenómenos (granizo, mesociclones, TVS, tracking de celdas), perfiles VWP y grillas de viento GFS (`wind_grids`).
 
 El pipeline escribe a D1 desde fuera de Cloudflare vía **HTTP API REST** (`/accounts/{id}/d1/database/{id}/query` con token) — sin transacciones entre requests, por eso los upserts son idempotentes y ordenados (dimensiones → hechos). El viewer accede vía binding interno de su Worker; cómo lo haga es asunto del viewer — el contrato es solo el schema en `db/`.
 
@@ -70,17 +81,18 @@ nexrad-l3-pipeline/
 ├── README.md
 ├── mkdocs.yml                # esta documentación
 ├── Dockerfile                # imagen única: l3proc (poll | watch)
-├── docker-compose.yml        # stack Swarm: poller + procesador (+ monitor en F5)
+├── docker-compose.yml        # stack Swarm: poller + procesador
 ├── ingest/                   # paquete Python 3.12
 │   ├── decoder/              # MetPy Level3File + parsing propio (Symbology, Tabular)
 │   ├── gridding/             # polar → AEQD, escritura COG
 │   ├── phenomena/            # granizo, meso, TVS, celdas
 │   ├── storage/              # clientes R2 (S3 API) y D1 (HTTP API)
-│   ├── retention/            # sweep + reconciliación
 │   ├── poller.py             # transporte: polling del bucket público
 │   ├── watcher.py            # servicio procesador (FILE + watcher)
+│   ├── wind.py               # referencia viento GFS (valida al Worker)
 │   └── replay.py             # injector puntual para dev/tests
 ├── db/                       # schema D1 + migraciones (contrato con el viewer)
-├── scripts/                  # e2e local de las puertas
+├── workers/                  # Workers de Cloudflare: ops (monitor+sweep), wind (GFS)
+├── scripts/                  # e2e local de las puertas + validación del Worker de viento
 └── docs/                     # fuentes de esta documentación
 ```

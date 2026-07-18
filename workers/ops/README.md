@@ -35,6 +35,11 @@ a la base remota `nexrad-l3` el 2026-07-10).
 - En JS, `Date.parse` de un ISO sin zona es hora *local*: todos los
   `vol_time` (UTC naive en D1) se parsean con `"Z"` explícita
   (`parseUtc()`). No quitar.
+- **Sweep y reconciliación cubren `rasters` y `wind_grids`**
+  (`KEYED_TABLES`): todo objeto del bucket debe estar referenciado por
+  una de esas tablas o la reconciliación lo borra como huérfano. Si otra
+  tabla con `r2_key` aparece algún día, añadirla ahí **antes** de que su
+  ingesta suba el primer objeto.
 
 ## Estado de la migración (2026-07-10)
 

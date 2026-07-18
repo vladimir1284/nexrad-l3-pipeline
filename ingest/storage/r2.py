@@ -47,6 +47,21 @@ class R2Client:
                 CacheControl="public, max-age=31536000, immutable",
             )
 
+    def upload_bytes(self, data: bytes, key: str, content_type: str) -> None:
+        # Mismo contrato de inmutabilidad que upload_file: la clave lleva
+        # el ciclo/vol_time, nunca se reescribe en sitio.
+        self._s3.put_object(
+            Bucket=self.bucket,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+            CacheControl="public, max-age=31536000, immutable",
+        )
+
+    def download_bytes(self, key: str) -> bytes:
+        resp = self._s3.get_object(Bucket=self.bucket, Key=key)
+        return resp["Body"].read()
+
     def head(self, key: str) -> dict | None:
         """Metadata del objeto (ContentLength incluido) o None si no existe."""
         try:

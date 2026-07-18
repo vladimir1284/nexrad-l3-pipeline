@@ -143,17 +143,25 @@ async function runMonitor(env: Env): Promise<void> {
 
 // ------------------------------------------------------------------- sweep
 
+// Tablas D1 cuyas filas apuntan a objetos R2 (columna r2_key) y su
+// columna temporal para el sweep. TODO objeto del bucket debe estar
+// referenciado por una de estas tablas o la reconciliación lo borra.
+const KEYED_TABLES = [
+  { table: "rasters", timeCol: "vol_time" },
+  { table: "wind_grids", timeCol: "valid_time" },
+] as const;
+
 async function deleteR2Keys(env: Env, keys: string[]): Promise<void> {
   for (let i = 0; i < keys.length; i += R2_DELETE_CHUNK) {
     await env.BUCKET.delete(keys.slice(i, i + R2_DELETE_CHUNK));
   }
 }
 
-async function deleteRastersByKey(env: Env, keys: string[]): Promise<void> {
+async function deleteRowsByKey(env: Env, table: string, keys: string[]): Promise<void> {
   for (let i = 0; i < keys.length; i += D1_IN_CHUNK) {
     const chunk = keys.slice(i, i + D1_IN_CHUNK);
     const marks = chunk.map((_, j) => `?${j + 1}`).join(",");
-    await env.DB.prepare(`DELETE FROM rasters WHERE r2_key IN (${marks})`)
+    await env.DB.prepare(`DELETE FROM ${table} WHERE r2_key IN (${marks})`)
       .bind(...chunk)
       .run();
   }
@@ -163,15 +171,17 @@ async function deleteRastersByKey(env: Env, keys: string[]): Promise<void> {
  * después — si el borrado R2 falla a mitad, la fila sobrevive y el
  * siguiente sweep reintenta. */
 async function sweepWindow(env: Env, cutoff: string): Promise<Record<string, number>> {
-  const old = await env.DB.prepare("SELECT r2_key FROM rasters WHERE vol_time < ?1")
-    .bind(cutoff)
-    .all<{ r2_key: string }>();
-  const keys = old.results.map((r) => r.r2_key);
-  const deleted: Record<string, number> = { rasters: 0, phenomena: 0, vwp: 0 };
-  if (keys.length) {
-    await deleteR2Keys(env, keys);
-    await deleteRastersByKey(env, keys);
-    deleted.rasters = keys.length;
+  const deleted: Record<string, number> = { rasters: 0, wind_grids: 0, phenomena: 0, vwp: 0 };
+  for (const { table, timeCol } of KEYED_TABLES) {
+    const old = await env.DB.prepare(`SELECT r2_key FROM ${table} WHERE ${timeCol} < ?1`)
+      .bind(cutoff)
+      .all<{ r2_key: string }>();
+    const keys = old.results.map((r) => r.r2_key);
+    if (keys.length) {
+      await deleteR2Keys(env, keys);
+      await deleteRowsByKey(env, table, keys);
+      deleted[table] = keys.length;
+    }
   }
   for (const table of ["phenomena", "vwp"] as const) {
     const res = await env.DB.prepare(`DELETE FROM ${table} WHERE vol_time < ?1`).bind(cutoff).run();
@@ -180,7 +190,7 @@ async function sweepWindow(env: Env, cutoff: string): Promise<Record<string, num
   return deleted;
 }
 
-/** Compara bucket con tabla rasters; borra huérfanos R2 y filas
+/** Compara bucket con las tablas con r2_key; borra huérfanos R2 y filas
  * colgantes. Objetos con menos de 1 h en el bucket no cuentan como
  * huérfanos (ventana upload-R2 → insert-D1 del publish). */
 async function reconcile(env: Env): Promise<{ orphans: number; dangling: number }> {
@@ -195,11 +205,14 @@ async function reconcile(env: Env): Promise<{ orphans: number; dangling: number 
     cursor = page.truncated ? page.cursor : undefined;
   } while (cursor);
 
-  const rows = await env.DB.prepare("SELECT r2_key FROM rasters").all<{ r2_key: string }>();
-  const inD1 = new Set(rows.results.map((r) => r.r2_key));
+  const inD1 = new Map<string, string>(); // r2_key → tabla dueña
+  for (const { table } of KEYED_TABLES) {
+    const rows = await env.DB.prepare(`SELECT r2_key FROM ${table}`).all<{ r2_key: string }>();
+    for (const r of rows.results) inD1.set(r.r2_key, table);
+  }
 
   const orphans = [...inR2].filter((k) => !inD1.has(k)).sort();
-  const dangling = [...inD1].filter((k) => !inR2.has(k)).sort();
+  const dangling = [...inD1.keys()].filter((k) => !inR2.has(k)).sort();
   // Filas más recientes que la gracia pueden apuntar a objetos aún no
   // listados arriba — verificar contra el bucket antes de declararlas
   // colgantes.
@@ -211,7 +224,10 @@ async function reconcile(env: Env): Promise<{ orphans: number; dangling: number 
   if (orphans.length || confirmed.length) {
     console.warn(`reconcile: ${orphans.length} huérfanos R2, ${confirmed.length} filas colgantes (corrigiendo)`);
     await deleteR2Keys(env, orphans);
-    await deleteRastersByKey(env, confirmed);
+    for (const { table } of KEYED_TABLES) {
+      const keys = confirmed.filter((k) => inD1.get(k) === table);
+      if (keys.length) await deleteRowsByKey(env, table, keys);
+    }
   } else {
     console.log(`reconcile: consistente (${inR2.size} objetos)`);
   }
@@ -223,7 +239,7 @@ async function runSweep(env: Env): Promise<void> {
   const cutoff = new Date(Date.now() - windowHours * 3_600_000).toISOString().slice(0, 19);
   const deleted = await sweepWindow(env, cutoff);
   console.log(
-    `sweep: cutoff=${cutoff} rasters=${deleted.rasters} phenomena=${deleted.phenomena} vwp=${deleted.vwp}`,
+    `sweep: cutoff=${cutoff} rasters=${deleted.rasters} wind_grids=${deleted.wind_grids} phenomena=${deleted.phenomena} vwp=${deleted.vwp}`,
   );
   await reconcile(env);
 }

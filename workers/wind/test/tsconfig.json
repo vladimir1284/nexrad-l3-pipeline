@@ -1,0 +1,12 @@
+// Typecheck de los tests (corren bajo node, no en el runtime de Workers):
+//   npx tsc --noEmit -p test
+// Excluye src/index.ts: es el único que necesita los tipos de Workers,
+// que chocan con los de node (URL global) — y los tests no lo importan.
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": [".", "../src"],
+  "exclude": ["../src/index.ts"]
+}

@@ -39,12 +39,13 @@ Servicios del stack Swarm:
 | `poller` | `poll /data/incoming --interval 60` | Cada 60 s lista claves nuevas por sitio×producto en el bucket público y las deposita en el volumen con escritura atómica (tmp+rename). Catch-up tras caídas capeado a 6 claves por par. | Watermark por par en `.poll_state.json` (en el volumen — sobrevive reinicios sin re-descargar historia) | heartbeat < 300 s |
 | `processor` | `watch /data/incoming` | Watcher inotify. Por producto: decodifica (MetPy) → grilla AEQD → COG → sube a R2 → metadata a D1 (upserts idempotentes). Éxito borra el crudo; fallo lo mueve a `failed/` con traza en el log. Al arrancar consume el backlog pendiente en orden de llegada. | Ninguno propio (el backlog vive en el volumen) | heartbeat < 300 s — **solo vivo, nunca por backlog**: reiniciar por atraso no vacía nada |
 
-Crons del Worker `nexrad-l3-ops` (detalle en `workers/ops/README.md`):
+Crons de los Workers de Cloudflare (`nexrad-l3-ops`, detalle en `workers/ops/README.md`; `nexrad-l3-wind`, detalle en `workers/wind/README.md`):
 
 | Cron | Qué hace | Estado que mantiene |
 |---|---|---|
+| `37 * * * *` (wind, Worker `nexrad-l3-wind`) | Viento GFS 10 m desde el filtro de NOMADS para los sitios de `radars` → JSON por (sitio, valid_time) a R2 + fila en `wind_grids`. Idempotente (upsert solo gana con ciclo más nuevo, objeto reemplazado se borra); máx. `MAX_FETCHES` descargas por corrida, lo más fresco primero. | Ninguno — el estado es D1 |
 | `*/5 * * * *` (monitor) | Por sitio: ¿hay raster en D1 con < 30 min **y** su objeto R2 responde a HEAD? Eso valida la cadena completa bucket→poller→processor→R2/D1. Telegram: resumen 🩺 en el primer chequeo de un sitio, después **solo transiciones** (🔴 al caer, 🟢 al recuperar). Sin secrets de Telegram queda en modo solo-log. | Último estado por sitio en la tabla D1 `ops_monitor_state` |
-| `17 * * * *` (sweep) | Borra rasters con `vol_time` fuera de la ventana de 72 h (objetos R2 primero, filas D1 después) y barre `phenomena`/`vwp`. Después reconcilia R2↔D1: limpia huérfanos (objeto sin fila, ignorando objetos con < 1 h) y filas colgantes (verificadas con HEAD antes de borrar). | Ninguno |
+| `17 * * * *` (sweep) | Borra rasters con `vol_time` y grillas de viento con `valid_time` fuera de la ventana de 72 h (objetos R2 primero, filas D1 después) y barre `phenomena`/`vwp`. Después reconcilia R2↔D1: limpia huérfanos (objeto sin fila en `rasters` ni `wind_grids`, ignorando objetos con < 1 h) y filas colgantes (verificadas con HEAD antes de borrar). | Ninguno |
 
 El umbral de 30 min funciona porque el feed es continuo (volumen cada 4–10 min según VCP): más de 30 min sin producto = cadena rota, no cielo despejado.
 

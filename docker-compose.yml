@@ -12,7 +12,10 @@
 #
 # Monitor de frescura y sweep de retención viven fuera del stack, en el
 # Worker de Cloudflare `nexrad-l3-ops` (workers/ops/) — un monitor dentro
-# del VPS no puede alertar cuando el VPS muere.
+# del VPS no puede alertar cuando el VPS muere. La ingesta de viento GFS
+# también es un Worker (`nexrad-l3-wind`, workers/wind/): puro
+# fetch→decode→R2/D1, sin necesidad de contenedor; la referencia Python
+# (`l3proc wind`) queda para validación cruzada.
 
 services:
   poller:
