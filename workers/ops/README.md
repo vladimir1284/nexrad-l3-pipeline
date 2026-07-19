@@ -35,11 +35,20 @@ a la base remota `nexrad-l3` el 2026-07-10).
 - En JS, `Date.parse` de un ISO sin zona es hora *local*: todos los
   `vol_time` (UTC naive en D1) se parsean con `"Z"` explícita
   (`parseUtc()`). No quitar.
-- **Sweep y reconciliación cubren `rasters` y `wind_grids`**
-  (`KEYED_TABLES`): todo objeto del bucket debe estar referenciado por
-  una de esas tablas o la reconciliación lo borra como huérfano. Si otra
-  tabla con `r2_key` aparece algún día, añadirla ahí **antes** de que su
-  ingesta suba el primer objeto.
+- **Sweep y reconciliación cubren `rasters`, `wind_grids` y
+  `lightning_buckets`**: todo objeto del bucket debe estar referenciado
+  por una de esas tablas o la reconciliación lo borra como huérfano. Si
+  otra tabla con `r2_key` aparece algún día, añadirla **antes** de que
+  su ingesta suba el primer objeto (a `KEYED_TABLES` si su `r2_key` es
+  NOT NULL; como `lightning_buckets` — sweep por columna temporal,
+  reconciliación vía `R2_KEY_TABLES` — si admite NULL).
+- **El monitor vigila tres capas por sitio**: rasters (clave =
+  sitio pelado en `ops_monitor_state`), viento (`SITE:wind`, fresco =
+  cobertura ≥ `WIND_MIN_LEAD_H` horas por delante) y rayos (`SITE:ltg`,
+  fresco = último cubo < `LTG_MAX_AGE_MIN` min). Wind/lightning se
+  activan solos cuando su tabla tiene filas — la migración llega antes
+  que el Worker de ingesta y la tabla vacía no alerta; una vez activa
+  la capa, quedarse sin filas sí es rojo.
 
 ## Estado de la migración (2026-07-10)
 

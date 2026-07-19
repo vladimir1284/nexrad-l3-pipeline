@@ -54,3 +54,17 @@ Spec acordada con el viewer jul-2026 (migración `0003_wind_grids.sql`; en el vi
 - `forecast_hour` 0–12 con ciclos cada 6 h → continuidad horaria y ~2 h de colchón si un ciclo se retrasa.
 - Retención: mismo sweep de 72 h que los rasters (Worker `nexrad-l3-ops`, por `valid_time`); la reconciliación R2↔D1 cubre `rasters` **y** `wind_grids`.
 - CORS: los JSON se leen con `fetch` directo desde el navegador — misma allowlist que los COGs (van en el mismo bucket, ya cubierto). Pendiente de verificar: si el dominio del bucket no comprime JSON en el edge, subir con `content-encoding: gzip` (hoy se sube plano).
+
+## `lightning_buckets` — descargas eléctricas GLM (parte del contrato)
+
+Spec acordada con el viewer 2026-07-19 (migración `0004_lightning_buckets.sql`; el DDL propuesto vivía en `tests/contract/proposed/` del viewer). Fuente: **GOES-19 GLM `GLM-L2-LCFA`** (bucket público `noaa-goes19`, un netCDF-4 cada 20 s, nivel flash). Sin contrato comercial de rayos (confirmado jul-2026) — si algún día lo hubiera, cambia solo el adaptador de fuente del Worker; este contrato queda igual. La ingesta será el Worker `nexrad-l3-lightning` (**pendiente**; riesgo #1 = spike de `h5wasm` sobre workerd antes de construir nada, con `jsfive` + `DecompressionStream` como fallback puro-JS y Pyodide como último recurso).
+
+- Cubos fijos de **300 s alineados a UTC** (`:00/:05/:10…`), desacoplados del VCP a propósito — el viewer junta los cubos que solapan la ventana de la observación (lookup: `WHERE site_id = ? AND bucket_start >= ? AND bucket_start < ?`, cubierto por la PK).
+- **Fila SIEMPRE al cerrar el cubo, incluso con 0 rayos** (`strike_count = 0`, `r2_key NULL`, sin objeto R2): fila presente = cubo cubierto sin descargas; fila ausente = hueco de ingesta.
+- `r2_key`: `{SITE}/LIGHTNING/{YYYY}/{MM}/{DD}/{SITE}_LTG_{YYYYMMDD}_{HHMMSS}.json` (fecha/hora = `bucket_start`) — **inmutable**: el cubo se procesa una única vez, cerrado + ≥ 90 s de margen de latencia GLM.
+- Formato JSON: `{"site", "bucket_start", "bucket_s", "strikes": [[lon, lat, offset_s], …]}` — lon/lat en grados a 3 decimales, lon en [-180, 180); `offset_s` = segundos desde `bucket_start`, 1 decimal, ascendente, en `[0, bucket_s)`. Atributos futuros irían en una posición extra opcional (parser del viewer tolerante, como `attrs`).
+- Recorte por sitio: gran círculo ≤ **460 km** del radar (extensión N0B; acordado 2026-07-19). Un flash puede aparecer en el fichero de varios sitios — correcto, ficheros independientes.
+- Filtro de calidad: `flash_quality_flag == 0` — **provisional, sin criterio experto aún**; cambiar el umbral es cambio de ingesta, no de contrato.
+- Frontera de cubos (regla de ingesta): flashes asignados por el tiempo real del primer evento; se lista un frame GLM extra (`s = bucket_end` inclusive) porque un flash que cruza frames aparece en el fichero posterior con el primer evento hacia atrás; lo que caiga fuera de `[0, bucket_s)` se descarta. Ojo: el cubo `:55` mete el frame extra en el prefijo de la hora siguiente (dos LIST).
+- Retención: 72 h en `nexrad-l3-ops` (sweep por `bucket_start`, no por `r2_key` — hay filas sin objeto; la reconciliación ignora `r2_key NULL`). **Orden de deploy: ops antes que el Worker lightning** — si no, la reconciliación borra los primeros JSON como huérfanos (pasada la gracia de 1 h).
+- CORS: mismo bucket que COGs/viento, allowlist ya cubierta.
