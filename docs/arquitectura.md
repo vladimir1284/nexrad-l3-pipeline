@@ -57,20 +57,25 @@ Sitios: los de la tabla `radars` (radar-agnóstico, nada hardcodeado; dominio `l
 
 La referencia Python (`ingest/wind.py`, `l3proc wind`) implementa la misma lógica con eccodes y sirve para validación cruzada del Worker (`scripts/validate_wind_worker.py`) — no se despliega.
 
+### Worker de rayos (`nexrad-l3-lightning`)
+
+También fuera del VPS: descargas eléctricas del **GOES-19 GLM** (producto `GLM-L2-LCFA`, bucket público AWS, un netCDF-4 cada 20 s, nivel flash) para la capa de rayos animados del viewer. Cron minutero (+ backfill horario de 72 h): por cada **cubo de 300 s alineado a UTC** cerrado hace ≥ 90 s lista los frames del intervalo (más un frame extra — un flash que cruza frames aparece en el fichero posterior con el primer evento hacia atrás), los parsea con **h5wasm** (HDF5 en WASM, vendorizado con un parche de instanciación porque workerd prohíbe compilar wasm en runtime — detalle en `workers/lightning/README.md`), filtra calidad, recorta por sitio (gran círculo ≤ 460 km, sitios de `radars`) y publica: JSON `[lon, lat, offset_s]` a R2 cuando hay descargas + fila **siempre** a `lightning_buckets` — fila con 0 rayos = cubo cubierto sin descargas; sin fila = hueco de ingesta. Cubos fijos y no vol_times a propósito: los rayos llegan en continuo, el viewer junta los cubos que solapan cada observación. GLM es rayo total (IC+CG sin distinguir), detección ~70–90 %, posición ~8–14 km — sobra para evolución de tormenta, no para localización exacta de impactos.
+
 ### Cloudflare R2
 
-Almacén de COGs (+ JSON de viento). Sirve al viewer con CORS + HTTP range requests (el cliente solo descarga los tiles/overviews que necesita). Convención de paths:
+Almacén de COGs (+ JSON de viento y rayos). Sirve al viewer con CORS + HTTP range requests (el cliente solo descarga los tiles/overviews que necesita). Convención de paths:
 
 ```
 {site}/{mnemo}/{YYYY}/{MM}/{DD}/{site}_{mnemo}_{YYYYMMDD_HHMMSS}.tif
 {site}/WIND/{YYYY}/{MM}/{DD}/{site}_WIND_{YYYYMMDD}_{HHMMSS}_c{ciclo}f{FFF}.json
+{site}/LIGHTNING/{YYYY}/{MM}/{DD}/{site}_LTG_{YYYYMMDD}_{HHMMSS}.json
 ```
 
-Ambas claves son **inmutables** (`Cache-Control: immutable`): en viento el ciclo va en el nombre — un ciclo más nuevo sube objeto nuevo y borra el anterior tras el upsert en D1.
+Las tres claves son **inmutables** (`Cache-Control: immutable`): en viento el ciclo va en el nombre — un ciclo más nuevo sube objeto nuevo y borra el anterior tras el upsert en D1; en rayos el cubo se procesa una única vez ya cerrado.
 
 ### Cloudflare D1
 
-Base SQLite serverless (tier gratuito, misma cuenta que R2). Tablas: catálogo de radares (poblado dinámicamente desde la metadata entrante, sin radares hardcodeados), descriptores de producto, metadata de rasters (clave R2, timestamps, VCP, elevación, calibración, proyección), fenómenos (granizo, mesociclones, TVS, tracking de celdas), perfiles VWP y grillas de viento GFS (`wind_grids`).
+Base SQLite serverless (tier gratuito, misma cuenta que R2). Tablas: catálogo de radares (poblado dinámicamente desde la metadata entrante, sin radares hardcodeados), descriptores de producto, metadata de rasters (clave R2, timestamps, VCP, elevación, calibración, proyección), fenómenos (granizo, mesociclones, TVS, tracking de celdas), perfiles VWP, grillas de viento GFS (`wind_grids`) y cubos de rayos GLM (`lightning_buckets`).
 
 El pipeline escribe a D1 desde fuera de Cloudflare vía **HTTP API REST** (`/accounts/{id}/d1/database/{id}/query` con token) — sin transacciones entre requests, por eso los upserts son idempotentes y ordenados (dimensiones → hechos). El viewer accede vía binding interno de su Worker; cómo lo haga es asunto del viewer — el contrato es solo el schema en `db/`.
 
@@ -92,7 +97,7 @@ nexrad-l3-pipeline/
 │   ├── wind.py               # referencia viento GFS (valida al Worker)
 │   └── replay.py             # injector puntual para dev/tests
 ├── db/                       # schema D1 + migraciones (contrato con el viewer)
-├── workers/                  # Workers de Cloudflare: ops (monitor+sweep), wind (GFS)
+├── workers/                  # Workers de Cloudflare: ops (monitor+sweep), wind (GFS), lightning (GLM)
 ├── scripts/                  # e2e local de las puertas + validación del Worker de viento
 └── docs/                     # fuentes de esta documentación
 ```

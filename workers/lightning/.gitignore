@@ -1,0 +1,3 @@
+# generado por scripts/vendor-h5wasm.mjs (npm run vendor / hook prepare)
+src/vendor/
+dist/

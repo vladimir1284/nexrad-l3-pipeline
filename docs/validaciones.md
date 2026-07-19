@@ -96,3 +96,16 @@ Setup: migración `0003_wind_grids.sql` aplicada; Worker `nexrad-l3-ops` **redes
 4. En el navegador (o `curl`) un `r2_key` reciente: ✅ JSON válido, `u.length === v.length === nx*ny`, CORS OK desde el viewer.
 5. Cuando NOMADS publique un ciclo nuevo (~3.5–5 h tras 00/06/12/18Z): ✅ los valid_times solapados pasan al ciclo nuevo con `forecast_hour` menor y los objetos viejos desaparecen del bucket (tail: `publicados=N`).
 6. Corrida siguiente sin datos nuevos: ✅ `publicados=0` (idempotencia).
+
+## Rayos GLM — Worker `nexrad-l3-lightning`
+
+Setup (orden importa): migración `0004_lightning_buckets.sql` aplicada → `nexrad-l3-ops` redesplegado (sweep/reconciliación/monitor con `lightning_buckets`; si no, la reconciliación borra los JSON `LIGHTNING/` como huérfanos) → `npm install && npx wrangler deploy` desde `workers/lightning/`. Logs: `npx wrangler tail nexrad-l3-lightning`.
+
+Pre-validado en local 2026-07-19 (D1/R2 locales de wrangler + GLM vivo): 5 cubos × 3 sitios, filas con `strike_count 0` y `r2_key NULL` en JUA, JSON de AMX con 207 strikes = `strike_count`, offsets ascendentes en `[0, 300)`, distancia máx 458.6 ≤ 460 km, tercera corrida sin escrituras. Contra producción:
+
+1. Sin red: `npm test` en `workers/lightning/` ✅ (cubos, claves, frontera, recorte, formato).
+2. Tras ~30 min del deploy: `SELECT site_id, COUNT(*), MIN(bucket_start), MAX(bucket_start) FROM lightning_buckets GROUP BY site_id` → cubos de 300 s **continuos** por sitio (fila presente aun con 0 rayos); tras el backfill horario, acercándose a 72 h.
+3. Un `r2_key` no nulo reciente por GET público: JSON válido según contrato, `strikes.length === strike_count`, offsets ascendentes en `[0, 300)`, todos los puntos ≤ 460 km, CORS OK desde el viewer.
+4. Tail de una corrida sin cubos nuevos: sin escrituras (idempotencia).
+5. Puerta del experto (tipo M4): tormenta activa visible en el raster de un sitio produce cubos con `strike_count > 0` en la misma zona/hora del volumen.
+6. Monitor: al primer cubo ingerido, 🩺 con claves `SITE:ltg` en Telegram; parar el Worker > 30 min debe dar 🔴 y reanudarlo 🟢.

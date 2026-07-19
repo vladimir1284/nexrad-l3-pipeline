@@ -1,0 +1,20 @@
+{
+  "name": "nexrad-l3-lightning",
+  "private": true,
+  "scripts": {
+    "prepare": "node scripts/vendor-h5wasm.mjs",
+    "vendor": "node scripts/vendor-h5wasm.mjs",
+    "predeploy": "node scripts/vendor-h5wasm.mjs",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev --test-scheduled",
+    "check": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5",
+    "@types/node": "^26.1.1",
+    "h5wasm": "0.10.3",
+    "typescript": "^5",
+    "wrangler": "^4"
+  }
+}

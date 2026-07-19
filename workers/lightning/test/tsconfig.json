@@ -1,0 +1,12 @@
+// Typecheck de los tests (corren bajo node, no en el runtime de Workers):
+//   npx tsc --noEmit -p test
+// Excluye src/index.ts y src/glm.ts: necesitan tipos de Workers/vendor;
+// los tests solo cubren la lógica pura de core.ts.
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": [".", "../src"],
+  "exclude": ["../src/index.ts", "../src/glm.ts", "../src/vendor"]
+}

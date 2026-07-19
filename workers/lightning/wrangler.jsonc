@@ -1,0 +1,50 @@
+// Worker de ingesta de rayos GLM → JSON por (sitio, cubo 300 s) en R2 +
+// filas en lightning_buckets. Contrato en db/README.md.
+//
+// Deploy: npm install && npx wrangler deploy   (desde workers/lightning/)
+//   npm install regenera src/vendor/ (hook prepare); ver README.
+//   ORDEN: nexrad-l3-ops (sweep/reconciliación/monitor con
+//   lightning_buckets) va desplegado ANTES — si no, la reconciliación
+//   borra los primeros JSON como huérfanos.
+// Prueba local del cron: npx wrangler dev --test-scheduled
+//   → curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"
+{
+  "name": "nexrad-l3-lightning",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "triggers": {
+    // minutero = camino caliente; :39 = backfill 72 h (lejos del :17 de
+    // ops y del :37 de wind)
+    "crons": ["* * * * *", "39 * * * *"]
+  },
+  "limits": {
+    // backfill peor caso: ~30 cubos × 16 frames × ~60 ms de parse HDF5
+    "cpu_ms": 120000
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nexrad-l3",
+      "database_id": "d7b5d89f-d33c-46ff-8ae9-a1116662670e"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "nexrad-l3"
+    }
+  ],
+  "vars": {
+    "GLM_BASE": "https://noaa-goes19.s3.amazonaws.com",
+    "LOOKBACK_MIN": "30",
+    "BACKFILL_HOURS": "72",
+    "MARGIN_S": "90",
+    // alcance máximo Level III (extensión N0B); acordado 2026-07-19
+    "RADIUS_KM": "460",
+    "MAX_BUCKETS": "4",
+    "MAX_BUCKETS_BACKFILL": "30"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
