@@ -108,14 +108,23 @@ def _cmd_poll(args: argparse.Namespace) -> int:
 
 
 def _cmd_wind(args: argparse.Namespace) -> int:
+    import os
+
     from ingest.config import ConfigError, StorageConfig
     from ingest.storage.d1 import D1Client
     from ingest.storage.r2 import R2Client
-    from ingest.wind import WindIngestor, run_wind
+    from ingest.wind import LEVEL_10M, WindIngestor, resolve_levels, run_wind
 
     try:
         cfg = StorageConfig.from_env()
     except ConfigError as exc:
+        print(f"l3proc: {exc}", file=sys.stderr)
+        return 3
+    level_names = args.levels or os.environ.get("WIND_LEVELS", "")
+    names = [n.strip() for n in level_names.split(",") if n.strip()]
+    try:
+        levels = resolve_levels(names) if names else (LEVEL_10M,)
+    except ValueError as exc:
         print(f"l3proc: {exc}", file=sys.stderr)
         return 3
     r2 = R2Client(cfg.r2_endpoint, cfg.r2_bucket, cfg.r2_access_key_id, cfg.r2_secret_access_key)
@@ -126,6 +135,7 @@ def _cmd_wind(args: argparse.Namespace) -> int:
         ingestor = WindIngestor(
             d1,
             r2,
+            levels=levels,
             window_h=args.window,
             lookahead_h=args.lookahead,
             pause_s=args.pause,
@@ -285,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
     p_poll.set_defaults(func=_cmd_poll)
 
     p_wind = sub.add_parser(
-        "wind", help="servicio: viento GFS 10 m → JSON en R2 + filas en wind_grids"
+        "wind", help="servicio: viento GFS (10 m + niveles) → JSON en R2 + filas en wind_grids"
     )
     p_wind.add_argument(
         "--interval", type=float, default=3600.0, help="segundos entre corridas (def. 3600)"
@@ -302,6 +312,15 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=2.0,
         help="pausa entre requests a NOMADS en s (def. 2; bloquean IPs agresivas)",
+    )
+    p_wind.add_argument(
+        "--levels",
+        default=None,
+        help=(
+            "niveles a ingestar, coma-separados (10m,850hPa,700hPa,500hPa); "
+            "def. env WIND_LEVELS o solo 10m si no está seteada — fase 2 "
+            "(niveles de altura) pendiente de confirmar con el viewer"
+        ),
     )
     p_wind.add_argument(
         "--heartbeat",

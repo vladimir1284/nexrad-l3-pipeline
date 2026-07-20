@@ -14,16 +14,21 @@ import numpy as np
 import pytest
 
 from ingest.wind import (
+    LEVEL_10M,
     BBox,
+    Level,
     WindIngestor,
     candidate_cycles,
     decode_grib,
     encode_json,
+    resolve_levels,
     site_bbox,
     subset,
     union_bbox,
     wind_key,
 )
+
+LEVEL_850 = Level("850hPa", "lev_850_mb", "u", "v")
 
 MIGRATIONS = sorted((Path(__file__).parent.parent / "db" / "migrations").glob("*.sql"))
 
@@ -73,8 +78,10 @@ class FakeR2:
             self.objects.pop(k, None)
 
 
-def make_grib(box: BBox, seed: float = 0.0, south_to_north: bool = False) -> bytes:
-    """UGRD+VGRD 10 m sintéticos sobre `box`, en la convención GFS (lon 0–360).
+def make_grib(
+    box: BBox, seed: float = 0.0, south_to_north: bool = False, level: Level = LEVEL_10M
+) -> bytes:
+    """UGRD+VGRD sintéticos sobre `box` para `level`, convención GFS (lon 0–360).
 
     `south_to_north=True` imita al filtro de NOMADS, que re-empaqueta los
     subsets con jScansPositively=1 (los GFS crudos van norte→sur).
@@ -83,7 +90,7 @@ def make_grib(box: BBox, seed: float = 0.0, south_to_north: bool = False) -> byt
     n = box.nx * box.ny
     lat_first, lat_last = (box.south, box.north) if south_to_north else (box.north, box.south)
     out = b""
-    for short, base in (("10u", seed), ("10v", seed + 100.0)):
+    for short, base in ((level.u_short, seed), (level.v_short, seed + 100.0)):
         h = ec.codes_grib_new_from_samples("regular_ll_sfc_grib2")
         ec.codes_set(h, "shortName", short)
         ec.codes_set(h, "Ni", box.nx)
@@ -126,8 +133,19 @@ def test_union_bbox():
 
 
 def test_wind_key_ejemplo_de_la_spec():
-    key = wind_key("AMX", datetime(2026, 7, 18, 12, 0, 0), datetime(2026, 7, 18, 6), 6)
-    assert key == "AMX/WIND/2026/07/18/AMX_WIND_20260718_120000_c2026071806f006.json"
+    key = wind_key("AMX", datetime(2026, 7, 18, 12, 0, 0), datetime(2026, 7, 18, 6), 6, "10m")
+    assert key == "AMX/WIND/2026/07/18/AMX_WIND_20260718_120000_c2026071806f006_10m.json"
+
+
+def test_wind_key_incluye_nivel():
+    key = wind_key("AMX", datetime(2026, 7, 18, 12, 0, 0), datetime(2026, 7, 18, 6), 6, "850hPa")
+    assert key.endswith("_850hPa.json")
+
+
+def test_resolve_levels():
+    assert resolve_levels(["10m"]) == (LEVEL_10M,)
+    with pytest.raises(ValueError, match="nivel de viento desconocido"):
+        resolve_levels(["bogus"])
 
 
 def test_candidate_cycles_fh_0_a_12():
@@ -188,6 +206,13 @@ def test_decode_voltea_grillas_sur_a_norte():
     assert np.array_equal(sur_norte.v, norte_sur.v)
 
 
+def test_decode_rechaza_nivel_equivocado():
+    """shortName de otro nivel no cuenta como u/v del nivel pedido."""
+    box = site_bbox(AMX_LAT, AMX_LON)
+    with pytest.raises(Exception, match="faltan mensajes"):
+        decode_grib(make_grib(box, level=LEVEL_10M), level=LEVEL_850)
+
+
 # ------------------------------------------------------------- ingestor
 
 
@@ -198,17 +223,19 @@ class ScriptedNomads:
         self.available = set()  # datetimes de ciclo publicados
         self.requests = []
 
-    def __call__(self, cycle, fh, box):
-        self.requests.append((cycle, fh))
+    def __call__(self, cycle, fh, box, level):
+        self.requests.append((cycle, fh, level.name))
         if cycle not in self.available:
             return None
-        return make_grib(box, seed=float(cycle.hour + fh))
+        return make_grib(box, seed=float(cycle.hour + fh), level=level)
 
 
 @pytest.fixture
 def env():
     d1, r2, nomads = SqliteD1(), FakeR2(), ScriptedNomads()
-    ingestor = WindIngestor(d1, r2, fetch=nomads, window_h=3, lookahead_h=2, pause_s=0)
+    ingestor = WindIngestor(
+        d1, r2, fetch=nomads, levels=(LEVEL_10M,), window_h=3, lookahead_h=2, pause_s=0
+    )
     return d1, r2, nomads, ingestor
 
 
@@ -247,7 +274,7 @@ def test_rerun_sin_datos_nuevos_es_noop(env):
     assert stats == {"published": 0, "fresh": 5, "failed": 0}
     assert r2.objects == uploads_antes and r2.deleted == []
     # sí sondea NOMADS (¿hay ciclo más nuevo?) pero nunca el ciclo ya servido
-    assert all(cycle > datetime(2026, 7, 18, 6) for cycle, _ in nomads.requests)
+    assert all(cycle > datetime(2026, 7, 18, 6) for cycle, _fh, _level in nomads.requests)
 
 
 def test_ciclo_nuevo_reemplaza_y_borra_objetos_viejos(env):
@@ -278,7 +305,7 @@ def test_upsert_no_degrada_a_ciclo_mas_viejo(env):
 
     d1.execute(
         _UPSERT_SQL,
-        ["AMX", "2026-07-18T13:00:00", "2026-07-18T06:00:00", 7, "gfs0p25", "otro", 1],
+        ["AMX", "2026-07-18T13:00:00", "10m", "2026-07-18T06:00:00", 7, "gfs0p25", "otro", 1],
     )
     row = d1.execute(
         "SELECT cycle_time FROM wind_grids WHERE valid_time = ?", ["2026-07-18T13:00:00"]
@@ -291,10 +318,10 @@ def test_fallo_en_un_valid_time_no_aborta_el_resto(env):
     nomads.available = {datetime(2026, 7, 18, 6), datetime(2026, 7, 18, 12)}
     roto = datetime(2026, 7, 18, 12)
 
-    def fetch(cycle, fh, box):
+    def fetch(cycle, fh, box, level):
         if (cycle, fh) == (roto, 3):  # valid_time 15:00 revienta
             raise RuntimeError("NOMADS 503")
-        return nomads(cycle, fh, box)
+        return nomads(cycle, fh, box, level)
 
     ingestor._fetch = fetch
     stats = ingestor.run_once(now=NOW)
@@ -312,3 +339,24 @@ def test_sin_radares_no_hace_nada():
     ingestor = WindIngestor(d1, FakeR2(), fetch=nomads, pause_s=0)
     assert ingestor.run_once(now=NOW) == {"published": 0, "fresh": 0, "failed": 0}
     assert nomads.requests == []
+
+
+def test_run_once_multi_nivel_una_fila_por_nivel():
+    """Fase 2: cada nivel configurado es su propia fila y su propio objeto R2."""
+    d1, r2, nomads = SqliteD1(), FakeR2(), ScriptedNomads()
+    ingestor = WindIngestor(
+        d1, r2, fetch=nomads, levels=(LEVEL_10M, LEVEL_850), window_h=3, lookahead_h=2, pause_s=0
+    )
+    nomads.available = {datetime(2026, 7, 18, 6)}
+
+    stats = ingestor.run_once(now=NOW)
+
+    assert stats == {"published": 10, "fresh": 0, "failed": 0}  # 5 valid_times × 2 niveles
+    rows = d1.execute("SELECT * FROM wind_grids ORDER BY valid_time, level")
+    assert {r["level"] for r in rows} == {"10m", "850hPa"}
+    assert len(rows) == 10
+    # cada (valid_time, nivel) tiene su propio objeto, nombrado con el nivel
+    assert len({r["r2_key"] for r in rows}) == 10
+    assert all(r["r2_key"].endswith(f"_{r['level']}.json") for r in rows)
+    # cada nivel se pide por separado a NOMADS (distinto lev_* en el filtro)
+    assert {lvl for _c, _fh, lvl in nomads.requests} == {"10m", "850hPa"}
