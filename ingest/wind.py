@@ -360,7 +360,17 @@ class WindIngestor:
                 "rightlon": box.east % 360,
             },
         )
-        if resp.status_code == 404:
+        if resp.status_code in (404, 403):
+            # el edge de Akamai delante de NOMADS responde 403 (no 404) para
+            # "Request for future data" cuando el ciclo/fh aún no se publicó
+            # (confirmado 2026-07-20 contra prod) — mismo caso que 404.
+            log.debug(
+                "wind: %s para %s f%03d %s (probablemente aún no publicado)",
+                resp.status_code,
+                _iso(cycle),
+                fh,
+                level.name,
+            )
             return None
         resp.raise_for_status()
         if not resp.content.startswith(b"GRIB"):

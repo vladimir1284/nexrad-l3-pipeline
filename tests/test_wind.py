@@ -213,6 +213,51 @@ def test_decode_rechaza_nivel_equivocado():
         decode_grib(make_grib(box, level=LEVEL_10M), level=LEVEL_850)
 
 
+# ------------------------------------------------------- fetch NOMADS real
+
+
+class _FakeResponse:
+    def __init__(self, status_code, content=b""):
+        self.status_code = status_code
+        self.content = content
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+
+class _FakeHttpClient:
+    def __init__(self, response):
+        self._response = response
+
+    def get(self, *_args, **_kwargs):
+        return self._response
+
+
+def test_fetch_nomads_403_futuro_es_no_publicado(monkeypatch):
+    """El edge Akamai responde 403 (no 404) para ciclos aún no publicados
+    ("Request for future data", confirmado 2026-07-20 contra prod real)."""
+    ingestor = WindIngestor(SqliteD1(), FakeR2(), pause_s=0)
+    monkeypatch.setattr(ingestor, "_http", _FakeHttpClient(_FakeResponse(403, b"<html/>")))
+    box = site_bbox(AMX_LAT, AMX_LON)
+    assert ingestor._fetch_nomads(datetime(2026, 7, 21), 0, box, LEVEL_10M) is None
+
+
+def test_fetch_nomads_404_es_no_publicado(monkeypatch):
+    ingestor = WindIngestor(SqliteD1(), FakeR2(), pause_s=0)
+    monkeypatch.setattr(ingestor, "_http", _FakeHttpClient(_FakeResponse(404)))
+    box = site_bbox(AMX_LAT, AMX_LON)
+    assert ingestor._fetch_nomads(datetime(2026, 7, 21), 0, box, LEVEL_10M) is None
+
+
+def test_fetch_nomads_propaga_otros_errores(monkeypatch):
+    ingestor = WindIngestor(SqliteD1(), FakeR2(), pause_s=0)
+    monkeypatch.setattr(ingestor, "_http", _FakeHttpClient(_FakeResponse(500)))
+    box = site_bbox(AMX_LAT, AMX_LON)
+    with pytest.raises(RuntimeError):
+        ingestor._fetch_nomads(datetime(2026, 7, 21), 0, box, LEVEL_10M)
+
+
 # ------------------------------------------------------------- ingestor
 
 
