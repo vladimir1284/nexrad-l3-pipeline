@@ -13,7 +13,8 @@ dist/
 .env
 /data/
 
-# workers (wrangler)
+# workers (wrangler) — cubre workers/*/.wrangler/ y db/.wrangler/ (wrangler
+# también corre desde db/, ver CLAUDE.md)
 node_modules/
-workers/**/.wrangler/
+**/.wrangler/
 .wrangler/cache/pages.json

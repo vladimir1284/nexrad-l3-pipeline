@@ -13,9 +13,10 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-06",
   "triggers": {
-    // minutero = camino caliente; :39 = backfill 72 h (lejos del :17 de
-    // ops y del :37 de wind)
-    "crons": ["* * * * *", "39 * * * *"]
+    // deprecado 2026-07-20: ingesta autoritativa movida al servicio Docker
+    // `lightning` (ver docker-compose.yml, db/README.md). Cron vacío =
+    // Worker sin ejecutar, código conservado como referencia/rollback.
+    "crons": []
   },
   "limits": {
     // backfill peor caso: ~30 cubos × 16 frames × ~60 ms de parse HDF5

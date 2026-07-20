@@ -10,8 +10,10 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-06",
   "triggers": {
-    // horario, lejos del :17 del sweep de nexrad-l3-ops
-    "crons": ["37 * * * *"]
+    // deprecado 2026-07-20: ingesta autoritativa movida al servicio Docker
+    // `wind` (ver docker-compose.yml, db/README.md). Cron vacío = Worker
+    // sin ejecutar, código conservado como referencia/rollback.
+    "crons": []
   },
   "d1_databases": [
     {
