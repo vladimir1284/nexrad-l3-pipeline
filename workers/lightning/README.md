@@ -1,5 +1,18 @@
 # nexrad-l3-lightning — Worker de ingesta de rayos GLM
 
+> **Deprecado (2026-07-20).** La cuenta está en plan Free de Cloudflare
+> Workers: no permite subir `limits.cpu_ms` (falla con
+> `CPU limits are not supported for the Free plan [code: 100328]`), y el
+> parse HDF5 de GLM (~60 ms/frame) excede el default en la mayoría de
+> invocaciones — confirmado con GraphQL Analytics (~69% `exceededResources`
+> en las 72 h previas al corte). La ingesta autoritativa se movió al
+> servicio Docker `lightning` (`ingest/lightning.py`, `l3proc lightning`, ver
+> `docker-compose.yml` y `db/README.md`), puerto fiel de la lógica de este
+> Worker con `h5py` en vez de h5wasm. Este directorio se conserva como
+> referencia/rollback — los gotchas de formato GLM documentados abajo (attrs
+> `_Unsigned`, frame extra por cubo, etc.) siguen siendo válidos para el
+> port en Python.
+
 Worker de Cloudflare que puebla la capa de rayos del viewer: descargas
 del **GOES-19 GLM** (producto `GLM-L2-LCFA`, bucket público
 `noaa-goes19`, un netCDF-4 cada 20 s) → JSON por (sitio, cubo de 300 s)

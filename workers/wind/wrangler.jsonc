@@ -28,7 +28,13 @@
   ],
   "vars": {
     "WINDOW_HOURS": "72",
-    "LOOKAHEAD_HOURS": "2",
+    // 4 h, no 2: cron horario decae la cobertura 1:1 con el reloj entre
+    // corridas; con LOOKAHEAD == umbral del monitor (WIND_MIN_LEAD_H) no
+    // queda margen y ops marca "viejo" casi toda la hora (bug real, no
+    // dato faltante). Con 4 h el piso garantizado es ~3 h (una corrida
+    // perdida) y ~2 h (dos corridas perdidas) — ese último caso sí debe
+    // alertar.
+    "LOOKAHEAD_HOURS": "4",
     "NOMADS_PAUSE_MS": "2000",
     // tope de descargas NOMADS por corrida: cortesía + margen de subrequests.
     // Backfill de 72 h converge en ~4 corridas; lo fresco sale primero.

@@ -1,5 +1,12 @@
 # nexrad-l3-wind — Worker de ingesta de viento GFS
 
+> **Deprecado (2026-07-20).** La ingesta autoritativa de viento se movió al
+> servicio Docker `wind` (`ingest/wind.py`, `l3proc wind`, ver
+> `docker-compose.yml` y `db/README.md`). Este Worker se conserva en el repo
+> como referencia/rollback, no desplegado. Motivo: el plan Free de Cloudflare
+> Workers no permite subir `limits.cpu_ms`; ver el README de
+> `workers/lightning/` para el detalle (el mismo motivo aplicó ahí primero).
+
 Worker de Cloudflare con cron horario (`37 * * * *`): viento **GFS 0.25°
 10 m** (u/v) desde el filtro GRIB de NOMADS → JSON por (sitio,
 valid_time) en R2 + fila en `wind_grids` (D1). Consumidor: la capa de

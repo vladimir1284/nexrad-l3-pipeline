@@ -8,6 +8,7 @@ dependencies = [
     "boto3>=1.43.40",
     "eccodes>=2.47.0",
     "eccodeslib>=2.48.0.26",
+    "h5py>=3.12.1",
     "httpx>=0.28.1",
     "metpy>=1.7.1",
     "numpy>=2.5.1",
