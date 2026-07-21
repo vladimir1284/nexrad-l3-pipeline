@@ -81,7 +81,7 @@ services:
 
   wind:
     image: ghcr.io/vladimir1284/nexrad-l3-pipeline:${IMAGE_TAG:-latest}
-    command: ["wind", "--interval", "3600", "--lookahead", "4", "--heartbeat", "/tmp/.wind_heartbeat"]
+    command: ["wind", "--interval", "3600", "--lookahead", "4", "--heartbeat", "/tmp/.wind_heartbeat", "--levels", "10m,850hPa,700hPa,500hPa"]
     environment:
       R2_ENDPOINT: ${R2_ENDPOINT}
       R2_BUCKET: ${R2_BUCKET}
