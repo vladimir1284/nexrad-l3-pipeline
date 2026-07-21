@@ -294,6 +294,12 @@ class LightningIngestor:
         self._radius_km = radius_km
         self._max_buckets = max_buckets
         self._http: httpx.Client | None = None
+        # (site_id, bucket_start) ya escritos, persistido entre corridas del
+        # proceso — evita releer D1 cada 60 s (WHERE bucket_start >= ? no usa
+        # la PK (site_id, bucket_start) por índice, escanea toda la tabla:
+        # ~2.6k filas/llamada × 1440 llamadas/día). None = aún sin bootstrap
+        # (arranque o reinicio del contenedor; no hay estado compartido).
+        self._have: set[tuple[str, str]] | None = None
         # cache por corrida: el listado S3 y los flashes ya parseados se
         # comparten entre cubos vecinos (frame frontera de uno es el mismo
         # fichero que abre el siguiente)
@@ -350,11 +356,15 @@ class LightningIngestor:
         if not candidates:
             return stats
         oldest = _iso(candidates[-1])
-        existing = self._d1.execute(
-            "SELECT site_id, bucket_start FROM lightning_buckets WHERE bucket_start >= ?",
-            [oldest],
-        )
-        have = {(row["site_id"], row["bucket_start"]) for row in existing}
+        if self._have is None:
+            existing = self._d1.execute(
+                "SELECT site_id, bucket_start FROM lightning_buckets WHERE bucket_start >= ?",
+                [oldest],
+            )
+            self._have = {(row["site_id"], row["bucket_start"]) for row in existing}
+        else:
+            self._have = {pair for pair in self._have if pair[1] >= oldest}
+        have = self._have
 
         targets = [
             b for b in candidates if any((s["site_id"], _iso(b)) not in have for s in sites)

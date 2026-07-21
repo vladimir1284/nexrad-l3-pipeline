@@ -77,8 +77,14 @@ interface CheckStatus {
 }
 
 async function checkRaster(env: Env, site: string, maxAgeMin: number): Promise<CheckStatus> {
+  // product_code=153 (N0B) fija: sin filtro, la query cruza las 7
+  // particiones del índice (site_id, product_code, vol_time DESC) para
+  // hallar el máximo global — ~9.7k filas leídas por llamada en vez de 1
+  // (confirmado en Query Insights, 92.55M filas/9514 llamadas). N0B es
+  // el proxy de salud del sitio: base reflectivity, siempre presente si
+  // el VCP corre.
   const row = await env.DB.prepare(
-    "SELECT vol_time, r2_key FROM rasters WHERE site_id = ?1 ORDER BY vol_time DESC LIMIT 1",
+    "SELECT vol_time, r2_key FROM rasters WHERE site_id = ?1 AND product_code = 153 ORDER BY vol_time DESC LIMIT 1",
   )
     .bind(site)
     .first<{ vol_time: string; r2_key: string }>();

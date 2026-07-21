@@ -335,6 +335,10 @@ class WindIngestor:
         self._http: httpx.Client | None = None
         # cache por corrida: (ciclo, fh, nivel) → campo decodificado o None (no publicado)
         self._cache: dict[tuple[datetime, int, str], WindField | None] = {}
+        # (site_id, valid_time, level) → (cycle_time, r2_key), persistido entre
+        # corridas del proceso — evita releer wind_grids entera cada hora
+        # (SELECT sin WHERE). None = aún sin bootstrap (arranque/reinicio).
+        self._existing: dict[tuple[str, str, str], tuple[str, str]] | None = None
 
     def _fetch_nomads(self, cycle: datetime, fh: int, box: BBox, level: Level) -> bytes | None:
         if self._http is None:
@@ -398,18 +402,23 @@ class WindIngestor:
         boxes = {row["site_id"]: site_bbox(row["lat"], row["lon"]) for row in sites}
         union = union_bbox(boxes.values())
 
-        existing: dict[tuple[str, str, str], tuple[str, str]] = {}
-        rows = self._d1.execute(
-            "SELECT site_id, valid_time, level, cycle_time, r2_key FROM wind_grids"
-        )
-        for row in rows:
-            existing[(row["site_id"], row["valid_time"], row["level"])] = (
-                row["cycle_time"],
-                row["r2_key"],
-            )
-
         vt = _ceil_hour(now - self._window)
         last = _floor_hour(now + self._lookahead)
+
+        if self._existing is None:
+            rows = self._d1.execute(
+                "SELECT site_id, valid_time, level, cycle_time, r2_key FROM wind_grids"
+            )
+            self._existing = {}
+            for row in rows:
+                self._existing[(row["site_id"], row["valid_time"], row["level"])] = (
+                    row["cycle_time"],
+                    row["r2_key"],
+                )
+        else:
+            floor_s = _iso(vt)
+            self._existing = {k: v for k, v in self._existing.items() if k[1] >= floor_s}
+        existing = self._existing
         while vt <= last:
             try:
                 n = self._ingest_valid_time(vt, boxes, union, existing)
