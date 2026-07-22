@@ -6,9 +6,10 @@
 # (docker stack deploy no interpola ${VARS}; docker stack config sí.)
 #
 # Secrets (una vez):
-#   printf '%s' "$R2_ACCESS_KEY_ID"     | docker secret create nexrad_r2_access_key_id -
-#   printf '%s' "$R2_SECRET_ACCESS_KEY" | docker secret create nexrad_r2_secret_access_key -
-#   printf '%s' "$CLOUDFLARE_API_TOKEN" | docker secret create nexrad_cf_api_token -
+#   printf '%s' "$R2_ACCESS_KEY_ID"          | docker secret create nexrad_r2_access_key_id -
+#   printf '%s' "$R2_SECRET_ACCESS_KEY"      | docker secret create nexrad_r2_secret_access_key -
+#   printf '%s' "$CLOUDFLARE_API_TOKEN"      | docker secret create nexrad_cf_api_token -
+#   printf '%s' "$BETTERSTACK_SOURCE_TOKEN"  | docker secret create nexrad_betterstack_source_token -
 #
 # Monitor de frescura y sweep de retención viven fuera del stack, en el
 # Worker de Cloudflare `nexrad-l3-ops` (workers/ops/) — un monitor dentro
@@ -27,6 +28,10 @@ services:
     environment:
       NEXRAD_SITES: ${NEXRAD_SITES:-AMX,BYX,JUA}
       # NEXRAD_PRODUCTS: sin definir = todos los registrados (F4: N0B)
+      BETTERSTACK_HOST: ${BETTERSTACK_HOST}
+      BETTERSTACK_SOURCE_TOKEN_FILE: /run/secrets/nexrad_betterstack_source_token
+    secrets:
+      - nexrad_betterstack_source_token
     volumes:
       - incoming:/data/incoming
     healthcheck:
@@ -55,10 +60,13 @@ services:
       R2_ACCESS_KEY_ID_FILE: /run/secrets/nexrad_r2_access_key_id
       R2_SECRET_ACCESS_KEY_FILE: /run/secrets/nexrad_r2_secret_access_key
       CLOUDFLARE_API_TOKEN_FILE: /run/secrets/nexrad_cf_api_token
+      BETTERSTACK_HOST: ${BETTERSTACK_HOST}
+      BETTERSTACK_SOURCE_TOKEN_FILE: /run/secrets/nexrad_betterstack_source_token
     secrets:
       - nexrad_r2_access_key_id
       - nexrad_r2_secret_access_key
       - nexrad_cf_api_token
+      - nexrad_betterstack_source_token
     volumes:
       - incoming:/data/incoming
     healthcheck:
@@ -90,10 +98,13 @@ services:
       R2_ACCESS_KEY_ID_FILE: /run/secrets/nexrad_r2_access_key_id
       R2_SECRET_ACCESS_KEY_FILE: /run/secrets/nexrad_r2_secret_access_key
       CLOUDFLARE_API_TOKEN_FILE: /run/secrets/nexrad_cf_api_token
+      BETTERSTACK_HOST: ${BETTERSTACK_HOST}
+      BETTERSTACK_SOURCE_TOKEN_FILE: /run/secrets/nexrad_betterstack_source_token
     secrets:
       - nexrad_r2_access_key_id
       - nexrad_r2_secret_access_key
       - nexrad_cf_api_token
+      - nexrad_betterstack_source_token
     healthcheck:
       test: ["CMD", "l3proc", "health", "--heartbeat", "/tmp/.wind_heartbeat", "--max-age", "4200"]
       interval: 60s
@@ -120,10 +131,13 @@ services:
       R2_ACCESS_KEY_ID_FILE: /run/secrets/nexrad_r2_access_key_id
       R2_SECRET_ACCESS_KEY_FILE: /run/secrets/nexrad_r2_secret_access_key
       CLOUDFLARE_API_TOKEN_FILE: /run/secrets/nexrad_cf_api_token
+      BETTERSTACK_HOST: ${BETTERSTACK_HOST}
+      BETTERSTACK_SOURCE_TOKEN_FILE: /run/secrets/nexrad_betterstack_source_token
     secrets:
       - nexrad_r2_access_key_id
       - nexrad_r2_secret_access_key
       - nexrad_cf_api_token
+      - nexrad_betterstack_source_token
     healthcheck:
       test: ["CMD", "l3proc", "health", "--heartbeat", "/tmp/.lightning_heartbeat", "--max-age", "300"]
       interval: 60s
@@ -148,4 +162,6 @@ secrets:
   nexrad_r2_secret_access_key:
     external: true
   nexrad_cf_api_token:
+    external: true
+  nexrad_betterstack_source_token:
     external: true

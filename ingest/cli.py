@@ -5,13 +5,13 @@ AEQD y escribe el COG. F2 añade publicación a R2/D1.
 """
 
 import argparse
-import logging
 import signal
 import sys
 from pathlib import Path
 from threading import Event
 
 from ingest import __version__
+from ingest.logging_setup import configure_logging
 
 
 def _cmd_process(args: argparse.Namespace) -> int:
@@ -218,9 +218,7 @@ def _cmd_replay(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    configure_logging()
     parser = argparse.ArgumentParser(
         prog="l3proc",
         description="Procesador de productos NEXRAD Level III",

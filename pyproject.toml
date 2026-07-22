@@ -10,6 +10,7 @@ dependencies = [
     "eccodeslib>=2.48.0.26",
     "h5py>=3.12.1",
     "httpx>=0.28.1",
+    "logtail-python>=0.4.0",
     "metpy>=1.7.1",
     "numpy>=2.5.1",
     "pyproj>=3.7.2",

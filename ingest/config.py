@@ -5,7 +5,7 @@ con el valor (convención Docker secrets); si ambas existen, gana `_FILE`.
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -26,15 +26,27 @@ def _env(name: str, default: str | None = None) -> str:
     return value
 
 
+def env_optional(name: str, default: str | None = None) -> str | None:
+    """Como `_env`, pero devuelve `None` en vez de lanzar si falta (config opcional)."""
+    file_path = os.environ.get(f"{name}_FILE")
+    if file_path:
+        try:
+            return Path(file_path).read_text().strip()
+        except OSError as exc:
+            raise ConfigError(f"no se pudo leer {name}_FILE={file_path}: {exc}") from exc
+    return os.environ.get(name, default)
+
+
 @dataclass(frozen=True)
 class StorageConfig:
     r2_endpoint: str
     r2_bucket: str
-    r2_access_key_id: str
-    r2_secret_access_key: str
+    # repr=False: nunca deben aparecer en logs/prints accidentales del objeto.
+    r2_access_key_id: str = field(repr=False)
+    r2_secret_access_key: str = field(repr=False)
     cf_account_id: str
     d1_database_id: str
-    cf_api_token: str
+    cf_api_token: str = field(repr=False)
 
     @classmethod
     def from_env(cls) -> "StorageConfig":
