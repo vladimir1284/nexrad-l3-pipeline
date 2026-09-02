@@ -12,10 +12,11 @@
 #   printf '%s' "$NEXRAD_API_TOKEN_OPS"      | docker secret create nexrad_api_token_ops -
 #   printf '%s' "$BETTERSTACK_SOURCE_TOKEN"  | docker secret create nexrad_betterstack_source_token -
 #
-# Postgres self-hosted (reemplaza a Cloudflare D1 — agotaba la cuota del
-# plan gratuito). `postgres` está pineado a un nodo etiquetado
-# (`node.labels.pgdata==true`) porque el Swarm es de nodo único hoy y un
-# volumen local basta; no hay HA de base de datos a esta escala.
+# Postgres NO vive en este stack: es el Postgres compartido que ya corre
+# en otro stack del mismo Swarm (servicio `postgres`, red externa
+# `postgres-public`). Este compose solo crea una base+usuario propios
+# ahí dentro (`nexrad_l3`/`nexrad`, ver runbook de migración) y se
+# conecta por esa red — nada de volumen ni servicio Postgres acá.
 # `pg-backup` hace un dump nocturno a R2 (mismas credenciales R2 de
 # arriba) — ver scripts/pg-backup.sh.
 #
@@ -24,42 +25,24 @@
 # fetch() en vez de abrir SQL directo — un Worker no puede conectar TCP
 # a Postgres sin meter Hyperdrive+Tunnel+Access de por medio, y `ops`
 # debe poder alertar aunque el VPS entero muera, así que sigue viviendo
-# fuera del Swarm a propósito (ver api/README.md). `lamula-webviewer`
-# (el otro consumidor) y `ingest/` (poller/processor/wind/lightning, acá
-# abajo) hablan Postgres DIRECTO por la red interna del Swarm — ninguno
-# de los dos pasa por `api`.
+# fuera del Swarm a propósito (ver api/README.md), expuesta por Traefik
+# (red externa `traefik-public`). `lamula-webviewer` (el otro consumidor)
+# y `ingest/` (poller/processor/wind/lightning, acá abajo) hablan
+# Postgres DIRECTO por `postgres-public` — ninguno de los dos pasa por
+# `api`.
 #
 # Viento (GFS) y rayos (GLM) corren en `wind`/`lightning`: vivían en los
 # Workers `nexrad-l3-wind`/`nexrad-l3-lightning`, pero el plan Free de
 # Workers no permite subir `limits.cpu_ms` y el parse HDF5 de GLM lo
 # excede casi siempre (ver workers/lightning/README.md).
 
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: ${PG_DB:-nexrad_l3}
-      POSTGRES_USER: ${PG_USER:-nexrad}
-      POSTGRES_PASSWORD_FILE: /run/secrets/nexrad_pg_password
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    secrets:
-      - nexrad_pg_password
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-nexrad} -d ${PG_DB:-nexrad_l3}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    deploy:
-      replicas: 1
-      placement:
-        constraints: [node.labels.pgdata == true]
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          memory: 512M
+networks:
+  postgres-public:
+    external: true
+  traefik-public:
+    external: true
 
+services:
   api:
     image: ghcr.io/vladimir1284/nexrad-l3-api:${IMAGE_TAG:-latest}
     environment:
@@ -68,6 +51,10 @@ services:
       PG_USER: ${PG_USER:-nexrad}
       PG_PASSWORD_FILE: /run/secrets/nexrad_pg_password
       NEXRAD_API_TOKEN_OPS_FILE: /run/secrets/nexrad_api_token_ops
+    networks:
+      - default
+      - postgres-public
+      - traefik-public
     secrets:
       - nexrad_pg_password
       - nexrad_api_token_ops
@@ -83,8 +70,13 @@ services:
       resources:
         limits:
           memory: 256M
-    # Exposición pública: labels del reverse proxy del Swarm (Traefik) a
-    # completar contra la config real — ver plan de migración §1.3.
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.nexrad-api.rule=Host(`nexrad-api.ladetec.com`)"
+        - "traefik.http.routers.nexrad-api.entrypoints=websecure"
+        - "traefik.http.routers.nexrad-api.tls=true"
+        - "traefik.http.services.nexrad-api.loadbalancer.server.port=8080"
+        - "traefik.docker.network=traefik-public"
 
   pg-backup:
     image: postgres:16-alpine
@@ -98,6 +90,9 @@ services:
       R2_BUCKET: ${R2_BUCKET}
       R2_ACCESS_KEY_ID_FILE: /run/secrets/nexrad_r2_access_key_id
       R2_SECRET_ACCESS_KEY_FILE: /run/secrets/nexrad_r2_secret_access_key
+    networks:
+      - default
+      - postgres-public
     volumes:
       - ./scripts/pg-backup.sh:/backup.sh:ro
     secrets:
@@ -153,6 +148,9 @@ services:
       PG_PASSWORD_FILE: /run/secrets/nexrad_pg_password
       BETTERSTACK_HOST: ${BETTERSTACK_HOST}
       BETTERSTACK_SOURCE_TOKEN_FILE: /run/secrets/nexrad_betterstack_source_token
+    networks:
+      - default
+      - postgres-public
     secrets:
       - nexrad_r2_access_key_id
       - nexrad_r2_secret_access_key
@@ -192,6 +190,9 @@ services:
       PG_PASSWORD_FILE: /run/secrets/nexrad_pg_password
       BETTERSTACK_HOST: ${BETTERSTACK_HOST}
       BETTERSTACK_SOURCE_TOKEN_FILE: /run/secrets/nexrad_betterstack_source_token
+    networks:
+      - default
+      - postgres-public
     secrets:
       - nexrad_r2_access_key_id
       - nexrad_r2_secret_access_key
@@ -226,6 +227,9 @@ services:
       PG_PASSWORD_FILE: /run/secrets/nexrad_pg_password
       BETTERSTACK_HOST: ${BETTERSTACK_HOST}
       BETTERSTACK_SOURCE_TOKEN_FILE: /run/secrets/nexrad_betterstack_source_token
+    networks:
+      - default
+      - postgres-public
     secrets:
       - nexrad_r2_access_key_id
       - nexrad_r2_secret_access_key
@@ -248,7 +252,6 @@ services:
 
 volumes:
   incoming:
-  pgdata:
 
 secrets:
   nexrad_r2_access_key_id:
