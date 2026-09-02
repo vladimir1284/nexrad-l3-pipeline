@@ -6,7 +6,7 @@ import pytest
 from ingest.phenomena.parse import parse_file
 from ingest.storage.publish import publish_phenomena
 from tests.conftest import DATA_DIR
-from tests.test_publish import SqliteD1
+from tests.test_publish import SqlitePg
 
 
 def test_nst_golden_amx():
@@ -92,14 +92,14 @@ def test_productos_vacios_dan_cero_registros():
 
 
 def test_publish_phenomena_idempotente():
-    d1 = SqliteD1()
+    pg = SqlitePg()
     php = parse_file(DATA_DIR / "ICT_NMD_2026_07_10_05_07_19")
 
-    n = publish_phenomena(php, d1)
-    n2 = publish_phenomena(php, d1)  # republicar no duplica
+    n = publish_phenomena(php, pg)
+    n2 = publish_phenomena(php, pg)  # republicar no duplica
 
     assert n == n2 == 5
-    rows = d1.execute("SELECT * FROM phenomena ORDER BY id")
+    rows = pg.execute("SELECT * FROM phenomena ORDER BY id")
     assert len(rows) == 5
     assert rows[0]["kind"] == "meso"
     assert rows[0]["cell_id"] == "286"
@@ -108,19 +108,19 @@ def test_publish_phenomena_idempotente():
     attrs = json.loads(rows[0]["attrs"])
     assert attrs["msi"] == 2636
 
-    radar = d1.execute("SELECT * FROM radars")[0]
+    radar = pg.execute("SELECT * FROM radars")[0]
     assert radar["site_id"] == "ICT"  # catálogo poblado también por fenómenos
-    producto = d1.execute("SELECT * FROM products WHERE code = 141")[0]
+    producto = pg.execute("SELECT * FROM products WHERE code = 141")[0]
     assert producto["kind"] == "phenomena"
 
 
 def test_publish_phenomena_producto_vacio_borra_lo_previo():
-    d1 = SqliteD1()
+    pg = SqlitePg()
     php = parse_file(DATA_DIR / "ICT_NMD_2026_07_10_05_07_19")
-    publish_phenomena(php, d1)
+    publish_phenomena(php, pg)
 
     vacio = parse_file(DATA_DIR / "AMX_NMD_2026_07_10_04_57_17")
-    publish_phenomena(vacio, d1)
+    publish_phenomena(vacio, pg)
 
     # el volumen de ICT sigue; el vacío de AMX no insertó nada
-    assert d1.execute("SELECT COUNT(*) AS n FROM phenomena")[0]["n"] == 5
+    assert pg.execute("SELECT COUNT(*) AS n FROM phenomena")[0]["n"] == 5

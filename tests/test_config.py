@@ -7,9 +7,10 @@ ALL_VARS = {
     "R2_BUCKET": "nexrad-l3",
     "R2_ACCESS_KEY_ID": "ak",
     "R2_SECRET_ACCESS_KEY": "sk",
-    "CLOUDFLARE_ACCOUNT_ID": "acc",
-    "D1_DATABASE_ID": "db",
-    "CLOUDFLARE_API_TOKEN": "tok",
+    "PG_HOST": "postgres",
+    "PG_DB": "nexrad_l3",
+    "PG_USER": "nexrad",
+    "PG_PASSWORD": "tok",
 }
 
 
@@ -18,15 +19,17 @@ def test_from_env(monkeypatch):
         monkeypatch.setenv(k, v)
     cfg = StorageConfig.from_env()
     assert cfg.r2_bucket == "nexrad-l3"
-    assert cfg.cf_api_token == "tok"
+    assert cfg.pg_password == "tok"
+    assert cfg.pg_port == "5432"  # default sin PG_PORT en el entorno
+    assert cfg.pg_dsn == "host=postgres port=5432 dbname=nexrad_l3 user=nexrad password=tok"
 
 
 def test_env_file_gana_sobre_env(monkeypatch, tmp_path):
     secret = tmp_path / "token"
     secret.write_text("del-fichero\n")
-    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "del-entorno")
-    monkeypatch.setenv("CLOUDFLARE_API_TOKEN_FILE", str(secret))
-    assert _env("CLOUDFLARE_API_TOKEN") == "del-fichero"
+    monkeypatch.setenv("PG_PASSWORD", "del-entorno")
+    monkeypatch.setenv("PG_PASSWORD_FILE", str(secret))
+    assert _env("PG_PASSWORD") == "del-fichero"
 
 
 def test_falta_variable(monkeypatch):
@@ -69,5 +72,5 @@ def test_storage_config_repr_no_filtra_secretos(monkeypatch):
     r = repr(cfg)
     assert cfg.r2_access_key_id not in r
     assert cfg.r2_secret_access_key not in r
-    assert cfg.cf_api_token not in r
+    assert cfg.pg_password not in r
     assert cfg.r2_bucket in r

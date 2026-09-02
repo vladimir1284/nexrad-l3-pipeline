@@ -1,14 +1,14 @@
 """Tests del módulo de viento GFS (ingest/wind.py).
 
 Sin red: los GRIB2 se generan con eccodes desde el sample regular_ll y
-el fetcher se inyecta. El D1 falso es SQLite real con las migraciones de
-db/ — valida la sintaxis del upsert y el schema wind_grids a la vez.
+el fetcher se inyecta. El Postgres falso es SQLite real con el schema de
+db/pg_migrations/ (ver conftest.sqlite_compatible_pg_schema) — valida la
+sintaxis del upsert y el schema wind_grids a la vez.
 """
 
 import json
 import sqlite3
 from datetime import datetime
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -27,20 +27,18 @@ from ingest.wind import (
     union_bbox,
     wind_key,
 )
+from tests.conftest import sqlite_compatible_pg_schema
 
 LEVEL_850 = Level("850hPa", "lev_850_mb", "u", "v")
-
-MIGRATIONS = sorted((Path(__file__).parent.parent / "db" / "migrations").glob("*.sql"))
 
 AMX_LAT, AMX_LON = 25.6111, -80.4128
 
 
-class SqliteD1:
+class SqlitePg:
     def __init__(self):
         self.conn = sqlite3.connect(":memory:")
         self.conn.row_factory = sqlite3.Row
-        for migration in MIGRATIONS:
-            self.conn.executescript(migration.read_text())
+        self.conn.executescript(sqlite_compatible_pg_schema())
         self.conn.execute(
             "INSERT INTO radars (site_id, icao, lat, lon, height_m, proj4,"
             " first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -58,7 +56,7 @@ class SqliteD1:
         self.conn.commit()
 
     def execute(self, sql, params=()):
-        cur = self.conn.execute(sql, tuple(params))
+        cur = self.conn.execute(sql.replace("%s", "?"), tuple(params))
         self.conn.commit()
         return [dict(r) for r in cur.fetchall()]
 
@@ -237,21 +235,21 @@ class _FakeHttpClient:
 def test_fetch_nomads_403_futuro_es_no_publicado(monkeypatch):
     """El edge Akamai responde 403 (no 404) para ciclos aún no publicados
     ("Request for future data", confirmado 2026-07-20 contra prod real)."""
-    ingestor = WindIngestor(SqliteD1(), FakeR2(), pause_s=0)
+    ingestor = WindIngestor(SqlitePg(), FakeR2(), pause_s=0)
     monkeypatch.setattr(ingestor, "_http", _FakeHttpClient(_FakeResponse(403, b"<html/>")))
     box = site_bbox(AMX_LAT, AMX_LON)
     assert ingestor._fetch_nomads(datetime(2026, 7, 21), 0, box, LEVEL_10M) is None
 
 
 def test_fetch_nomads_404_es_no_publicado(monkeypatch):
-    ingestor = WindIngestor(SqliteD1(), FakeR2(), pause_s=0)
+    ingestor = WindIngestor(SqlitePg(), FakeR2(), pause_s=0)
     monkeypatch.setattr(ingestor, "_http", _FakeHttpClient(_FakeResponse(404)))
     box = site_bbox(AMX_LAT, AMX_LON)
     assert ingestor._fetch_nomads(datetime(2026, 7, 21), 0, box, LEVEL_10M) is None
 
 
 def test_fetch_nomads_propaga_otros_errores(monkeypatch):
-    ingestor = WindIngestor(SqliteD1(), FakeR2(), pause_s=0)
+    ingestor = WindIngestor(SqlitePg(), FakeR2(), pause_s=0)
     monkeypatch.setattr(ingestor, "_http", _FakeHttpClient(_FakeResponse(500)))
     box = site_bbox(AMX_LAT, AMX_LON)
     with pytest.raises(RuntimeError):
@@ -277,24 +275,24 @@ class ScriptedNomads:
 
 @pytest.fixture
 def env():
-    d1, r2, nomads = SqliteD1(), FakeR2(), ScriptedNomads()
+    pg, r2, nomads = SqlitePg(), FakeR2(), ScriptedNomads()
     ingestor = WindIngestor(
-        d1, r2, fetch=nomads, levels=(LEVEL_10M,), window_h=3, lookahead_h=2, pause_s=0
+        pg, r2, fetch=nomads, levels=(LEVEL_10M,), window_h=3, lookahead_h=2, pause_s=0
     )
-    return d1, r2, nomads, ingestor
+    return pg, r2, nomads, ingestor
 
 
 NOW = datetime(2026, 7, 18, 15, 30)  # → valid_times 13:00..17:00
 
 
 def test_run_once_publica_ventana_completa(env):
-    d1, r2, nomads, ingestor = env
+    pg, r2, nomads, ingestor = env
     nomads.available = {datetime(2026, 7, 18, 6)}  # el 12Z aún no publicado
 
     stats = ingestor.run_once(now=NOW)
 
     assert stats == {"published": 5, "fresh": 0, "failed": 0}
-    rows = d1.execute("SELECT * FROM wind_grids ORDER BY valid_time")
+    rows = pg.execute("SELECT * FROM wind_grids ORDER BY valid_time")
     assert [r["valid_time"] for r in rows] == [
         f"2026-07-18T{h}:00:00" for h in ("13", "14", "15", "16", "17")
     ]
@@ -308,7 +306,7 @@ def test_run_once_publica_ventana_completa(env):
 
 
 def test_rerun_sin_datos_nuevos_es_noop(env):
-    d1, r2, nomads, ingestor = env
+    pg, r2, nomads, ingestor = env
     nomads.available = {datetime(2026, 7, 18, 6)}
     ingestor.run_once(now=NOW)
     uploads_antes = dict(r2.objects)
@@ -323,16 +321,16 @@ def test_rerun_sin_datos_nuevos_es_noop(env):
 
 
 def test_ciclo_nuevo_reemplaza_y_borra_objetos_viejos(env):
-    d1, r2, nomads, ingestor = env
+    pg, r2, nomads, ingestor = env
     nomads.available = {datetime(2026, 7, 18, 6)}
     ingestor.run_once(now=NOW)
-    viejos = {r["r2_key"] for r in d1.execute("SELECT r2_key FROM wind_grids")}
+    viejos = {r["r2_key"] for r in pg.execute("SELECT r2_key FROM wind_grids")}
 
     nomads.available.add(datetime(2026, 7, 18, 12))
     stats = ingestor.run_once(now=NOW)
 
     assert stats == {"published": 5, "fresh": 0, "failed": 0}
-    rows = d1.execute("SELECT * FROM wind_grids ORDER BY valid_time")
+    rows = pg.execute("SELECT * FROM wind_grids ORDER BY valid_time")
     assert all(r["cycle_time"] == "2026-07-18T12:00:00" for r in rows)
     assert [r["forecast_hour"] for r in rows] == [1, 2, 3, 4, 5]
     assert set(r2.deleted) == viejos
@@ -342,24 +340,34 @@ def test_ciclo_nuevo_reemplaza_y_borra_objetos_viejos(env):
 
 def test_upsert_no_degrada_a_ciclo_mas_viejo(env):
     """El guard del upsert: un cycle_time menor no pisa la fila."""
-    d1, _r2, nomads, ingestor = env
+    pg, _r2, nomads, ingestor = env
     nomads.available = {datetime(2026, 7, 18, 12)}
     ingestor.run_once(now=NOW)
 
     from ingest.wind import _UPSERT_SQL
 
-    d1.execute(
+    pg.execute(
         _UPSERT_SQL,
-        ["AMX", "2026-07-18T13:00:00", "10m", "2026-07-18T06:00:00", 7, "gfs0p25", "otro", 1],
+        [
+            "AMX",
+            "2026-07-18T13:00:00",
+            "10m",
+            "2026-07-18T06:00:00",
+            7,
+            "gfs0p25",
+            "otro",
+            1,
+            "2026-07-18T12:30:00",
+        ],
     )
-    row = d1.execute(
-        "SELECT cycle_time FROM wind_grids WHERE valid_time = ?", ["2026-07-18T13:00:00"]
+    row = pg.execute(
+        "SELECT cycle_time FROM wind_grids WHERE valid_time = %s", ["2026-07-18T13:00:00"]
     )[0]
     assert row["cycle_time"] == "2026-07-18T12:00:00"
 
 
 def test_fallo_en_un_valid_time_no_aborta_el_resto(env):
-    d1, _r2, nomads, ingestor = env
+    pg, _r2, nomads, ingestor = env
     nomads.available = {datetime(2026, 7, 18, 6), datetime(2026, 7, 18, 12)}
     roto = datetime(2026, 7, 18, 12)
 
@@ -373,31 +381,31 @@ def test_fallo_en_un_valid_time_no_aborta_el_resto(env):
 
     assert stats["failed"] == 1
     assert stats["published"] == 4
-    assert d1.execute("SELECT COUNT(*) AS n FROM wind_grids")[0]["n"] == 4
+    assert pg.execute("SELECT COUNT(*) AS n FROM wind_grids")[0]["n"] == 4
 
 
 def test_sin_radares_no_hace_nada():
-    d1 = SqliteD1()
-    d1.conn.execute("DELETE FROM radars")
-    d1.conn.commit()
+    pg = SqlitePg()
+    pg.conn.execute("DELETE FROM radars")
+    pg.conn.commit()
     nomads = ScriptedNomads()
-    ingestor = WindIngestor(d1, FakeR2(), fetch=nomads, pause_s=0)
+    ingestor = WindIngestor(pg, FakeR2(), fetch=nomads, pause_s=0)
     assert ingestor.run_once(now=NOW) == {"published": 0, "fresh": 0, "failed": 0}
     assert nomads.requests == []
 
 
 def test_run_once_multi_nivel_una_fila_por_nivel():
     """Fase 2: cada nivel configurado es su propia fila y su propio objeto R2."""
-    d1, r2, nomads = SqliteD1(), FakeR2(), ScriptedNomads()
+    pg, r2, nomads = SqlitePg(), FakeR2(), ScriptedNomads()
     ingestor = WindIngestor(
-        d1, r2, fetch=nomads, levels=(LEVEL_10M, LEVEL_850), window_h=3, lookahead_h=2, pause_s=0
+        pg, r2, fetch=nomads, levels=(LEVEL_10M, LEVEL_850), window_h=3, lookahead_h=2, pause_s=0
     )
     nomads.available = {datetime(2026, 7, 18, 6)}
 
     stats = ingestor.run_once(now=NOW)
 
     assert stats == {"published": 10, "fresh": 0, "failed": 0}  # 5 valid_times × 2 niveles
-    rows = d1.execute("SELECT * FROM wind_grids ORDER BY valid_time, level")
+    rows = pg.execute("SELECT * FROM wind_grids ORDER BY valid_time, level")
     assert {r["level"] for r in rows} == {"10m", "850hPa"}
     assert len(rows) == 10
     # cada (valid_time, nivel) tiene su propio objeto, nombrado con el nivel

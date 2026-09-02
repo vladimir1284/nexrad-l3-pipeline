@@ -44,9 +44,11 @@ class StorageConfig:
     # repr=False: nunca deben aparecer en logs/prints accidentales del objeto.
     r2_access_key_id: str = field(repr=False)
     r2_secret_access_key: str = field(repr=False)
-    cf_account_id: str
-    d1_database_id: str
-    cf_api_token: str = field(repr=False)
+    pg_host: str
+    pg_port: str
+    pg_db: str
+    pg_user: str
+    pg_password: str = field(repr=False)
 
     @classmethod
     def from_env(cls) -> "StorageConfig":
@@ -55,7 +57,16 @@ class StorageConfig:
             r2_bucket=_env("R2_BUCKET"),
             r2_access_key_id=_env("R2_ACCESS_KEY_ID"),
             r2_secret_access_key=_env("R2_SECRET_ACCESS_KEY"),
-            cf_account_id=_env("CLOUDFLARE_ACCOUNT_ID"),
-            d1_database_id=_env("D1_DATABASE_ID"),
-            cf_api_token=_env("CLOUDFLARE_API_TOKEN"),
+            pg_host=_env("PG_HOST"),
+            pg_port=_env("PG_PORT", "5432"),
+            pg_db=_env("PG_DB"),
+            pg_user=_env("PG_USER"),
+            pg_password=_env("PG_PASSWORD"),
+        )
+
+    @property
+    def pg_dsn(self) -> str:
+        return (
+            f"host={self.pg_host} port={self.pg_port} dbname={self.pg_db} "
+            f"user={self.pg_user} password={self.pg_password}"
         )

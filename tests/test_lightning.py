@@ -1,11 +1,11 @@
 """Tests del módulo de rayos GLM (ingest/lightning.py).
 
 Sin red: los ficheros GLM-L2-LCFA sintéticos se generan con h5py replicando
-el layout real (`make_glm_file`); el D1 falso es SQLite real con las
-migraciones de db/ — valida la sintaxis del INSERT y el schema
-lightning_buckets a la vez. Un fichero real commiteado
-(`tests/data/GLM_LCFA_2026_07_20_13_00_00.nc`) cubre el parse contra el
-formato real vía golden test.
+el layout real (`make_glm_file`); el Postgres falso es SQLite real con el
+schema de db/pg_migrations/ (ver conftest.sqlite_compatible_pg_schema) —
+valida la sintaxis del INSERT y el schema lightning_buckets a la vez. Un
+fichero real commiteado (`tests/data/GLM_LCFA_2026_07_20_13_00_00.nc`)
+cubre el parse contra el formato real vía golden test.
 """
 
 import io
@@ -34,20 +34,19 @@ from ingest.lightning import (
     parse_units_base,
     strikes_for_site,
 )
+from tests.conftest import sqlite_compatible_pg_schema
 
-MIGRATIONS = sorted((Path(__file__).parent.parent / "db" / "migrations").glob("*.sql"))
 GLM_SAMPLE = Path(__file__).parent / "data" / "GLM_LCFA_2026_07_20_13_00_00.nc"
 
 AMX_LAT, AMX_LON = 25.6111, -80.4128
 JUA_LAT, JUA_LON = 18.1156, -66.0781
 
 
-class SqliteD1:
+class SqlitePg:
     def __init__(self, sites=(("AMX", AMX_LAT, AMX_LON),)):
         self.conn = sqlite3.connect(":memory:")
         self.conn.row_factory = sqlite3.Row
-        for migration in MIGRATIONS:
-            self.conn.executescript(migration.read_text())
+        self.conn.executescript(sqlite_compatible_pg_schema())
         for site_id, lat, lon in sites:
             self.conn.execute(
                 "INSERT INTO radars (site_id, icao, lat, lon, height_m, proj4,"
@@ -66,7 +65,7 @@ class SqliteD1:
         self.conn.commit()
 
     def execute(self, sql, params=()):
-        cur = self.conn.execute(sql, tuple(params))
+        cur = self.conn.execute(sql.replace("%s", "?"), tuple(params))
         self.conn.commit()
         return [dict(r) for r in cur.fetchall()]
 
@@ -315,25 +314,25 @@ TWO_BUCKETS_WINDOW_H = 900 / 3600  # oldest == BUCKET_B, newest == BUCKET_A
 
 @pytest.fixture
 def env():
-    d1, r2, glm = SqliteD1(), FakeR2(), ScriptedGlm()
+    pg, r2, glm = SqlitePg(), FakeR2(), ScriptedGlm()
     ingestor = LightningIngestor(
-        d1,
+        pg,
         r2,
         list_prefix=glm.list_prefix,
         fetch_file=glm.fetch_file,
         window_h=BUCKET_A_WINDOW_H,
         margin_s=90,
     )
-    return d1, r2, glm, ingestor
+    return pg, r2, glm, ingestor
 
 
 def test_run_once_fila_siempre_incluso_sin_rayos(env):
-    d1, r2, glm, ingestor = env
+    pg, r2, glm, ingestor = env
     full_frames(glm, BUCKET_A, near_site=None)
 
     stats = ingestor.run_once(now=NOW)
 
-    rows = d1.execute("SELECT * FROM lightning_buckets")
+    rows = pg.execute("SELECT * FROM lightning_buckets")
     assert len(rows) == 1
     assert rows[0]["strike_count"] == 0
     assert rows[0]["r2_key"] is None
@@ -343,12 +342,12 @@ def test_run_once_fila_siempre_incluso_sin_rayos(env):
 
 
 def test_run_once_publica_objeto_con_rayos(env):
-    d1, r2, glm, ingestor = env
+    pg, r2, glm, ingestor = env
     full_frames(glm, BUCKET_A, near_site=(AMX_LAT, AMX_LON))
 
     stats = ingestor.run_once(now=NOW)
 
-    rows = d1.execute("SELECT * FROM lightning_buckets")
+    rows = pg.execute("SELECT * FROM lightning_buckets")
     assert rows[0]["strike_count"] == 1
     assert rows[0]["r2_key"] is not None
     assert rows[0]["r2_key"] in r2.objects
@@ -356,7 +355,7 @@ def test_run_once_publica_objeto_con_rayos(env):
 
 
 def test_rerun_no_repite_cubos_ya_ingeridos(env):
-    d1, r2, glm, ingestor = env
+    pg, r2, glm, ingestor = env
     full_frames(glm, BUCKET_A, near_site=None)
     ingestor.run_once(now=NOW)
     glm.list_calls.clear()
@@ -370,7 +369,7 @@ def test_rerun_no_repite_cubos_ya_ingeridos(env):
 
 
 def test_cubo_incompleto_y_fresco_se_difiere(env):
-    d1, r2, glm, ingestor = env
+    pg, r2, glm, ingestor = env
     prefix = glm_hour_prefixes(BUCKET_A)[0]
     glm.register_prefix(prefix)
     glm.add_frame(frame_key(prefix, BUCKET_A), [], base=BUCKET_A)  # solo 1/16 frames
@@ -378,11 +377,11 @@ def test_cubo_incompleto_y_fresco_se_difiere(env):
     stats = ingestor.run_once(now=NOW)
 
     assert stats["deferred"] == 1
-    assert d1.execute("SELECT COUNT(*) AS n FROM lightning_buckets")[0]["n"] == 0
+    assert pg.execute("SELECT COUNT(*) AS n FROM lightning_buckets")[0]["n"] == 0
 
 
 def test_cubo_incompleto_pero_viejo_se_ingiere_igual(env):
-    d1, r2, glm, ingestor = env
+    pg, r2, glm, ingestor = env
     prefix = glm_hour_prefixes(BUCKET_A)[0]
     glm.register_prefix(prefix)
     glm.add_frame(frame_key(prefix, BUCKET_A), [], base=BUCKET_A)  # solo 1/16 frames
@@ -396,17 +395,17 @@ def test_cubo_incompleto_pero_viejo_se_ingiere_igual(env):
     ingestor._window_s = (muy_tarde - BUCKET_A).total_seconds()
     ingestor.run_once(now=muy_tarde)
 
-    row = d1.execute(
+    row = pg.execute(
         "SELECT * FROM lightning_buckets WHERE bucket_start = ?", ["2026-07-20T13:00:00"]
     )[0]
     assert row["strike_count"] == 0
 
 
 def test_sin_radares_no_hace_nada():
-    d1 = SqliteD1(sites=())
+    pg = SqlitePg(sites=())
     glm = ScriptedGlm()
     ingestor = LightningIngestor(
-        d1, FakeR2(), list_prefix=glm.list_prefix, fetch_file=glm.fetch_file
+        pg, FakeR2(), list_prefix=glm.list_prefix, fetch_file=glm.fetch_file
     )
     assert ingestor.run_once(now=NOW) == {
         "buckets": 0,
@@ -419,7 +418,7 @@ def test_sin_radares_no_hace_nada():
 
 
 def test_fallo_en_un_cubo_no_aborta_el_resto(env):
-    d1, r2, glm, ingestor = env
+    pg, r2, glm, ingestor = env
     ingestor._window_s = TWO_BUCKETS_WINDOW_H * 3600
     full_frames(glm, BUCKET_A, near_site=None)
     full_frames(glm, BUCKET_B, near_site=None)
@@ -436,5 +435,5 @@ def test_fallo_en_un_cubo_no_aborta_el_resto(env):
     stats = ingestor.run_once(now=NOW)
 
     assert stats["failed"] == 1
-    rows = d1.execute("SELECT bucket_start FROM lightning_buckets")
+    rows = pg.execute("SELECT bucket_start FROM lightning_buckets")
     assert {r["bucket_start"] for r in rows} == {"2026-07-20T13:00:00"}

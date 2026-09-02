@@ -6,7 +6,7 @@ de ser viable en el plan Free de Cloudflare Workers (el parse HDF5 de GLM,
 restricción de presupuesto de CPU/subrequests por invocación que forzaba el
 split minutero/backfill-horario del Worker, aquí una sola pasada por cada
 vuelta del loop cubre toda la ventana (`window_h`): barata cuando no hay
-nada nuevo (un SELECT + diff contra D1), cara solo para los cubos que de
+nada nuevo (un SELECT + diff contra Postgres), cara solo para los cubos que de
 verdad faltan.
 
 Fuente: listado S3 del bucket público `noaa-goes19`
@@ -49,9 +49,10 @@ FetchFileFn = Callable[[str], bytes | None]
 Strike = tuple[float, float, float]  # lon (3dec), lat (3dec), offset_s (1dec) desde bucket_start
 
 _INSERT_SQL = """
-INSERT OR IGNORE INTO lightning_buckets
-    (site_id, bucket_start, bucket_s, strike_count, r2_key, size_bytes, source)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO lightning_buckets
+    (site_id, bucket_start, bucket_s, strike_count, r2_key, size_bytes, source, created_at)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (site_id, bucket_start) DO NOTHING
 """
 
 _KEY_START_RE = re.compile(r"_s(\d{4})(\d{3})(\d{2})(\d{2})(\d{2})(\d)_")
@@ -264,7 +265,7 @@ def parse_glm(data: bytes) -> list[Flash]:
 
 
 class LightningIngestor:
-    """Una vuelta = ventana [now − window, now] barrida en R2+D1.
+    """Una vuelta = ventana [now − window, now] barrida en R2+Postgres.
 
     Sin cap artificial de cubos por corrida (a diferencia del Worker: aquí
     no hay presupuesto de CPU/subrequests por invocación) — `max_buckets` es
@@ -273,7 +274,7 @@ class LightningIngestor:
 
     def __init__(
         self,
-        d1: Any,
+        pg: Any,
         r2: Any,
         *,
         list_prefix: ListFn | None = None,
@@ -284,7 +285,7 @@ class LightningIngestor:
         radius_km: float = 460.0,
         max_buckets: int = 200,
     ) -> None:
-        self._d1 = d1
+        self._pg = pg
         self._r2 = r2
         self._base = base_url.rstrip("/")
         self._list_prefix = list_prefix or self._list_prefix_s3
@@ -295,8 +296,8 @@ class LightningIngestor:
         self._max_buckets = max_buckets
         self._http: httpx.Client | None = None
         # (site_id, bucket_start) ya escritos, persistido entre corridas del
-        # proceso — evita releer D1 cada 60 s (WHERE bucket_start >= ? no usa
-        # la PK (site_id, bucket_start) por índice, escanea toda la tabla:
+        # proceso — evita releer Postgres cada 60 s (WHERE bucket_start >= %s
+        # no usa la PK (site_id, bucket_start) por índice, escanea toda la tabla:
         # ~2.6k filas/llamada × 1440 llamadas/día). None = aún sin bootstrap
         # (arranque o reinicio del contenedor; no hay estado compartido).
         self._have: set[tuple[str, str]] | None = None
@@ -347,9 +348,9 @@ class LightningIngestor:
         self._file_cache.clear()
         stats = {"buckets": 0, "rows": 0, "objects": 0, "deferred": 0, "failed": 0}
 
-        sites = self._d1.execute("SELECT site_id, lat, lon FROM radars ORDER BY site_id")
+        sites = self._pg.execute("SELECT site_id, lat, lon FROM radars ORDER BY site_id")
         if not sites:
-            log.info("lightning: sin radares en D1 todavía — nada que hacer")
+            log.info("lightning: sin radares en Postgres todavía — nada que hacer")
             return stats
 
         candidates = eligible_bucket_starts(now, self._window_s, self._margin_s)
@@ -357,8 +358,8 @@ class LightningIngestor:
             return stats
         oldest = _iso(candidates[-1])
         if self._have is None:
-            existing = self._d1.execute(
-                "SELECT site_id, bucket_start FROM lightning_buckets WHERE bucket_start >= ?",
+            existing = self._pg.execute(
+                "SELECT site_id, bucket_start FROM lightning_buckets WHERE bucket_start >= %s",
                 [oldest],
             )
             self._have = {(row["site_id"], row["bucket_start"]) for row in existing}
@@ -440,13 +441,22 @@ class LightningIngestor:
                 r2_key = lightning_key(site["site_id"], start)
                 body = encode_bucket_json(site["site_id"], start, strikes)
                 size = len(body)
-                # orden: R2 → D1, igual que el Worker — si D1 falla, el
+                # orden: R2 → Postgres, igual que el Worker — si Postgres falla, el
                 # objeto queda huérfano y lo recoge la reconciliación de ops
                 self._r2.upload_bytes(body, r2_key, content_type="application/json")
                 stats["objects"] += 1
-            self._d1.execute(
+            self._pg.execute(
                 _INSERT_SQL,
-                [site["site_id"], start_iso, BUCKET_S, len(strikes), r2_key, size, SOURCE],
+                [
+                    site["site_id"],
+                    start_iso,
+                    BUCKET_S,
+                    len(strikes),
+                    r2_key,
+                    size,
+                    SOURCE,
+                    _iso(now),
+                ],
             )
             have.add((site["site_id"], start_iso))
         return len(pending)

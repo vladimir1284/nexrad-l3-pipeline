@@ -1,6 +1,6 @@
 """Servicio persistente: watcher sobre el directorio de entrada del LDM.
 
-Flujo por fichero: decode → grid AEQD → COG → publish (R2+D1) → borrar
+Flujo por fichero: decode → grid AEQD → COG → publish (R2+Postgres) → borrar
 el crudo. Fallos: el crudo se mueve a `failed/` (subdirectorio del de
 entrada) para reproceso manual. Heartbeat por mtime de fichero para el
 healthcheck del contenedor (F4).
@@ -47,27 +47,27 @@ class Publishers:
 
 
 def build_publisher() -> Publishers:
-    """Publishers reales R2+D1 con configuración del entorno."""
+    """Publishers reales R2+Postgres con configuración del entorno."""
     from ingest.config import StorageConfig
-    from ingest.storage.d1 import D1Client
+    from ingest.storage.pg import PgClient
     from ingest.storage.publish import publish_cog, publish_phenomena, publish_vwp
     from ingest.storage.r2 import R2Client
 
     cfg = StorageConfig.from_env()
     r2 = R2Client(cfg.r2_endpoint, cfg.r2_bucket, cfg.r2_access_key_id, cfg.r2_secret_access_key)
-    d1 = D1Client(cfg.cf_account_id, cfg.d1_database_id, cfg.cf_api_token)
+    pg = PgClient(cfg.pg_dsn)
 
     return Publishers(
-        raster=lambda cog, prod, grid: publish_cog(cog, prod, grid, r2, d1),
-        phenomena=lambda php: publish_phenomena(php, d1),
-        vwp=lambda vwp: publish_vwp(vwp, d1),
+        raster=lambda cog, prod, grid: publish_cog(cog, prod, grid, r2, pg),
+        phenomena=lambda php: publish_phenomena(php, pg),
+        vwp=lambda vwp: publish_vwp(vwp, pg),
     )
 
 
 class ProductProcessor:
     """Procesa un producto crudo — raster o fenómenos, decide por contenido.
 
-    Con publishers, los artefactos son efímeros (van a R2/D1); sin ellos
+    Con publishers, los artefactos son efímeros (van a R2/Postgres); sin ellos
     (dev), COGs y JSON de fenómenos quedan en output_dir."""
 
     def __init__(self, publisher: Publishers | None = None, output_dir: Path | None = None):
@@ -98,7 +98,7 @@ class ProductProcessor:
             out.write_text(json.dumps([r.__dict__ for r in php.records], default=str, indent=1))
             return f"{out} ({len(php.records)} registros)"
         n = self._publishers.phenomena(php)
-        return f"d1://phenomena ({n} registros)"
+        return f"pg://phenomena ({n} registros)"
 
     def _process_vwp(self, vwp: VwpProduct) -> str:
         if self._publishers is None:
@@ -107,7 +107,7 @@ class ProductProcessor:
             out.write_text(json.dumps([lv.__dict__ for lv in vwp.levels], indent=1))
             return f"{out} ({len(vwp.levels)} niveles)"
         n = self._publishers.vwp(vwp)
-        return f"d1://vwp ({n} niveles)"
+        return f"pg://vwp ({n} niveles)"
 
     def process(self, raw: Path) -> None:
         t0 = time.monotonic()

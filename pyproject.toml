@@ -13,6 +13,7 @@ dependencies = [
     "logtail-python>=0.4.0",
     "metpy>=1.7.1",
     "numpy>=2.5.1",
+    "psycopg[binary]>=3.2",
     "pyproj>=3.7.2",
     "rasterio>=1.5.0",
     "watchdog>=6.0.0",
@@ -54,5 +55,5 @@ select = [
 testpaths = ["tests"]
 addopts = "-q"
 markers = [
-    "integration: tests contra servicios reales (MinIO/R2, D1); se saltan sin credenciales en el entorno",
+    "integration: tests contra servicios reales (MinIO/R2, Postgres); se saltan sin credenciales en el entorno",
 ]

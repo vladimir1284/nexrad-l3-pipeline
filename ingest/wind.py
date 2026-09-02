@@ -5,8 +5,8 @@ Un fichero por (ciclo, forecast hour, nivel) con el bbox unión de todos
 los sitios; el recorte por sitio es local — la grilla GFS es regular
 0.25° y los bordes van alineados a múltiplos de 0.25°, así que el subset
 es puro índice, sin resampleo. El JSON por sitio va a R2 (clave
-inmutable, el ciclo en el nombre) y la fila a D1 con upsert que solo
-gana si el ``cycle_time`` nuevo es mayor. El estado vive en D1: no hay
+inmutable, el ciclo en el nombre) y la fila a Postgres con upsert que solo
+gana si el ``cycle_time`` nuevo es mayor. El estado vive en Postgres: no hay
 watermark local y re-ejecutar sin datos nuevos no reescribe nada.
 
 Fase 2 (niveles de altura, acordada 2026-07-20): además de la
@@ -83,8 +83,8 @@ FetchFn = Callable[[datetime, int, "BBox", Level], bytes | None]
 
 _UPSERT_SQL = """
 INSERT INTO wind_grids
-    (site_id, valid_time, level, cycle_time, forecast_hour, model, r2_key, size_bytes)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    (site_id, valid_time, level, cycle_time, forecast_hour, model, r2_key, size_bytes, created_at)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (site_id, valid_time, level) DO UPDATE SET
     cycle_time = excluded.cycle_time,
     forecast_hour = excluded.forecast_hour,
@@ -170,7 +170,7 @@ def candidate_cycles(valid_time: datetime) -> list[tuple[datetime, int]]:
 def wind_key(site_id: str, valid_time: datetime, cycle_time: datetime, fh: int, level: str) -> str:
     """{SITE}/WIND/{Y}/{M}/{D}/{SITE}_WIND_{ts}_c{ciclo}f{FFF}_{level}.json (inmutable).
 
-    El nivel va en el nombre (no solo en la fila D1): niveles distintos del
+    El nivel va en el nombre (no solo en la fila): niveles distintos del
     mismo (site, valid_time, cycle, fh) son objetos R2 distintos.
     """
     stamp = valid_time.strftime("%Y%m%d_%H%M%S")
@@ -308,7 +308,7 @@ def encode_json(field: WindField, cycle_time: datetime, fh: int) -> bytes:
 
 
 class WindIngestor:
-    """Una corrida = ventana [now − window, now + lookahead] al día en R2+D1.
+    """Una corrida = ventana [now − window, now + lookahead] al día en R2+Postgres.
 
     Idempotente y parcial-tolerante: un valid_time que falle no aborta el
     resto; el reintento es natural en la corrida siguiente.
@@ -316,7 +316,7 @@ class WindIngestor:
 
     def __init__(
         self,
-        d1: Any,
+        pg: Any,
         r2: Any,
         *,
         fetch: FetchFn | None = None,
@@ -325,7 +325,7 @@ class WindIngestor:
         lookahead_h: float = 2.0,
         pause_s: float = 2.0,
     ) -> None:
-        self._d1 = d1
+        self._pg = pg
         self._r2 = r2
         self._fetch = fetch or self._fetch_nomads
         self._levels = levels
@@ -395,9 +395,9 @@ class WindIngestor:
         self._cache.clear()  # la disponibilidad en NOMADS cambia entre corridas
         stats = {"published": 0, "fresh": 0, "failed": 0}
 
-        sites = self._d1.execute("SELECT site_id, lat, lon FROM radars ORDER BY site_id")
+        sites = self._pg.execute("SELECT site_id, lat, lon FROM radars ORDER BY site_id")
         if not sites:
-            log.info("wind: sin radares en D1 todavía — nada que hacer")
+            log.info("wind: sin radares en Postgres todavía — nada que hacer")
             return stats
         boxes = {row["site_id"]: site_bbox(row["lat"], row["lon"]) for row in sites}
         union = union_bbox(boxes.values())
@@ -406,7 +406,7 @@ class WindIngestor:
         last = _floor_hour(now + self._lookahead)
 
         if self._existing is None:
-            rows = self._d1.execute(
+            rows = self._pg.execute(
                 "SELECT site_id, valid_time, level, cycle_time, r2_key FROM wind_grids"
             )
             self._existing = {}
@@ -493,10 +493,14 @@ class WindIngestor:
         vt_s, cycle_s = _iso(vt), _iso(cycle)
         ekey = (site, vt_s, level.name)
         old = existing.get(ekey)
-        # orden: R2 → D1 → borrar el reemplazado. Si D1 falla, el objeto
+        # orden: R2 → Postgres → borrar el reemplazado. Si Postgres falla, el objeto
         # nuevo queda huérfano y lo recoge la reconciliación del Worker.
         self._r2.upload_bytes(body, key, content_type="application/json")
-        self._d1.execute(_UPSERT_SQL, [site, vt_s, level.name, cycle_s, fh, MODEL, key, len(body)])
+        created_at = datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds")
+        self._pg.execute(
+            _UPSERT_SQL,
+            [site, vt_s, level.name, cycle_s, fh, MODEL, key, len(body), created_at],
+        )
         if old is not None and old[1] != key:
             self._r2.delete_keys([old[1]])
         existing[ekey] = (cycle_s, key)

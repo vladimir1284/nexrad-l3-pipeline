@@ -36,7 +36,7 @@ def _cmd_process(args: argparse.Namespace) -> int:
 
     if args.publish:
         from ingest.config import ConfigError, StorageConfig
-        from ingest.storage.d1 import D1Client
+        from ingest.storage.pg import PgClient
         from ingest.storage.publish import publish_cog
         from ingest.storage.r2 import R2Client
 
@@ -48,8 +48,8 @@ def _cmd_process(args: argparse.Namespace) -> int:
         r2 = R2Client(
             cfg.r2_endpoint, cfg.r2_bucket, cfg.r2_access_key_id, cfg.r2_secret_access_key
         )
-        with D1Client(cfg.cf_account_id, cfg.d1_database_id, cfg.cf_api_token) as d1:
-            result = publish_cog(out, prod, grid, r2, d1)
+        with PgClient(cfg.pg_dsn) as pg:
+            result = publish_cog(out, prod, grid, r2, pg)
         print(f"r2://{cfg.r2_bucket}/{result.r2_key} ({result.size_bytes} bytes)")
     return 0
 
@@ -111,7 +111,7 @@ def _cmd_wind(args: argparse.Namespace) -> int:
     import os
 
     from ingest.config import ConfigError, StorageConfig
-    from ingest.storage.d1 import D1Client
+    from ingest.storage.pg import PgClient
     from ingest.storage.r2 import R2Client
     from ingest.wind import LEVEL_10M, WindIngestor, resolve_levels, run_wind
 
@@ -131,9 +131,9 @@ def _cmd_wind(args: argparse.Namespace) -> int:
     stop = Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
-    with D1Client(cfg.cf_account_id, cfg.d1_database_id, cfg.cf_api_token) as d1:
+    with PgClient(cfg.pg_dsn) as pg:
         ingestor = WindIngestor(
-            d1,
+            pg,
             r2,
             levels=levels,
             window_h=args.window,
@@ -154,7 +154,7 @@ def _cmd_wind(args: argparse.Namespace) -> int:
 def _cmd_lightning(args: argparse.Namespace) -> int:
     from ingest.config import ConfigError, StorageConfig
     from ingest.lightning import LightningIngestor, run_lightning
-    from ingest.storage.d1 import D1Client
+    from ingest.storage.pg import PgClient
     from ingest.storage.r2 import R2Client
 
     try:
@@ -166,9 +166,9 @@ def _cmd_lightning(args: argparse.Namespace) -> int:
     stop = Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
-    with D1Client(cfg.cf_account_id, cfg.d1_database_id, cfg.cf_api_token) as d1:
+    with PgClient(cfg.pg_dsn) as pg:
         ingestor = LightningIngestor(
-            d1,
+            pg,
             r2,
             base_url=args.glm_base,
             window_h=args.window,
@@ -238,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     p_process.add_argument(
         "--publish",
         action="store_true",
-        help="subir el COG a R2 y registrar metadata en D1 (config por entorno)",
+        help="subir el COG a R2 y registrar metadata en Postgres (config por entorno)",
     )
     p_process.set_defaults(func=_cmd_process)
 

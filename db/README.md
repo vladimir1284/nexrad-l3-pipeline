@@ -1,4 +1,20 @@
-# db/ — schema D1 (contrato con el viewer)
+# db/ — schema Postgres (contrato con el viewer)
+
+**Migrado de Cloudflare D1 a Postgres self-hosted** (D1 agotaba la cuota del plan gratuito). El schema vivo está en `pg_migrations/` (Postgres real, aplicado con `apply_pg_migrations.py`); `migrations/` (D1/SQLite) queda **congelado como referencia histórica/rollback**, no se edita ni se le agregan migraciones nuevas.
+
+## Postgres (`pg_migrations/`)
+
+Un único fichero squasheado (`0001_init.sql`, no un replay de las 5 migraciones D1 — la reconstrucción de tabla que forzaba `0005_wind_levels.sql` por "SQLite no soporta ALTER de PK" ya no aplica en Postgres). Aplicar:
+
+```bash
+uv run python db/apply_pg_migrations.py "host=<host> port=5432 dbname=nexrad_l3 user=nexrad password=<pass>"
+```
+
+El runner es un script propio (~30 líneas, tabla `schema_migrations`) — nada de Alembic/yoyo/Flyway, desproporcionado para este tamaño de schema. Reglas sin cambios: nunca editar una migración ya aplicada, el schema sigue siendo el **contrato con LAMULA-WebViewer** (coordinar cambios incompatibles), timestamps `TEXT` ISO-8601 UTC sin zona.
+
+Cambios mecánicos D1→Postgres: `AUTOINCREMENT`→`BIGSERIAL`; se quitó el `DEFAULT strftime(...)` de `wind_grids`/`lightning_buckets.created_at` (la app siempre pasa el valor); las FKs, decorativas en D1 (sin `PRAGMA foreign_keys=ON`), **sí se enforcean** en Postgres.
+
+## D1 (`migrations/`, congelado)
 
 Migraciones SQL en `migrations/`, formato wrangler (`NNNN_nombre.sql`, orden lexicográfico, cada una corre una sola vez).
 

@@ -4,20 +4,38 @@ Worker de Cloudflare que reemplaza a los servicios `monitor` y `sweep`
 del stack Swarm. Motivo del movimiento: el monitor vivía en el mismo
 VPS que vigila — VPS caído = monitor caído = ninguna alerta. En Workers
 el monitor sobrevive a la muerte del VPS, que es exactamente cuando
-hace falta. El sweep viene de acompañante: puro D1+R2, bindings nativos
-lo simplifican (sin boto3, sin HTTP API firmada).
+hace falta.
+
+**Migración D1 → Postgres (self-hosted en el Swarm):** este Worker ya
+no tiene binding D1 — la metadata vive en un Postgres self-hosted (D1
+agotaba la cuota del plan gratuito). Un Worker no puede abrir SQL
+directo a ese Postgres sin meter Hyperdrive+Tunnel+Access de por medio,
+así que en su lugar habla por `fetch()` con una API HTTP mínima
+(`api/`, mismo Swarm, ver `api/README.md`) que expone justo las
+queries que este archivo necesita — nunca SQL passthrough. `BUCKET`
+(R2) sigue siendo un binding nativo, sin cambios.
+
+Como este Worker existe específicamente para alertar cuando el VPS/
+Swarm entero muere, "la API no responde" no puede tratarse igual que
+"sin datos": cada chequeo de frescura cae a una señal R2-only
+(`env.BUCKET`, independiente del Swarm) cuando la API falla, y lo
+reporta como degradado en vez de silenciarse o confundirlo con "sin
+datos frescos". El sweep/reconciliación simplemente se omiten por ese
+ciclo si la API no responde — no son time-critical, reintentan la
+próxima hora.
 
 Dos crons en un solo Worker (`src/index.ts` despacha por expresión):
 
 | Cron | Función | Equivalente Python (borrado en la migración) |
 |---|---|---|
 | `*/5 * * * *` | monitor de frescura E2E + Telegram | `ingest/monitor.py` |
-| `17 * * * *` | retención 72 h + reconciliación R2↔D1 | `ingest/retention/sweep.py` |
+| `17 * * * *` | retención 72 h + reconciliación R2↔Postgres | `ingest/retention/sweep.py` |
 
 Estado del monitor (último verde/rojo por sitio, para alertar solo en
-transiciones) en la tabla D1 `ops_monitor_state`
-(migración `db/migrations/0002_ops_monitor_state.sql` — **ya aplicada**
-a la base remota `nexrad-l3` el 2026-07-10).
+transiciones) en la tabla `ops_monitor_state`
+(migración `db/pg_migrations/0001_init.sql`, originalmente
+`db/migrations/0002_ops_monitor_state.sql` en D1 — **ya aplicada** a la
+base remota `nexrad-l3` el 2026-07-10, migrada a Postgres después).
 
 ## Diferencias deliberadas con la versión Python
 
@@ -30,10 +48,10 @@ a la base remota `nexrad-l3` el 2026-07-10).
   Zona horaria descartada.)
 - **La reconciliación ignora objetos R2 con < 1 h en el bucket** y
   verifica filas colgantes con HEAD antes de borrarlas: `publish` sube
-  a R2 antes de insertar en D1 y un sweep en esa ventana veía huérfanos
-  falsos. La versión Python tiene esa carrera.
+  a R2 antes de insertar en Postgres y un sweep en esa ventana veía
+  huérfanos falsos. La versión Python tiene esa carrera.
 - En JS, `Date.parse` de un ISO sin zona es hora *local*: todos los
-  `vol_time` (UTC naive en D1) se parsean con `"Z"` explícita
+  `vol_time` (UTC naive en Postgres) se parsean con `"Z"` explícita
   (`parseUtc()`). No quitar.
 - **Sweep y reconciliación cubren `rasters`, `wind_grids` y
   `lightning_buckets`**: todo objeto del bucket debe estar referenciado

@@ -1,8 +1,12 @@
-"""Publicación de un COG procesado: objeto a R2 + metadata a D1.
+"""Publicación de un COG procesado: objeto a R2 + metadata a Postgres.
 
-Orden de statements pensado para cortes a mitad: primero dimensiones
-(radar, producto — upserts idempotentes), después el hecho (raster).
-Republicar el mismo volumen es idempotente (upsert por clave natural).
+Orden de statements pensado originalmente para cortes a mitad de un D1
+sin transacciones reales: primero dimensiones (radar, producto — upserts
+idempotentes), después el hecho (raster). Con Postgres directo
+(`PgClient.execute_many` es una transacción real) el orden ya no hace
+falta para la atomicidad, pero se conserva porque no hace daño y evita
+un diff sin motivo. Republicar el mismo volumen es idempotente (upsert
+por clave natural).
 """
 
 import json
@@ -13,13 +17,13 @@ from pathlib import Path
 from ingest.decoder.level3 import RadialProduct
 from ingest.gridding.aeqd import AeqdGrid, radar_proj4
 from ingest.phenomena.parse import PhenomenaProduct
-from ingest.storage.d1 import D1Client
 from ingest.storage.keys import raster_key
+from ingest.storage.pg import PgClient
 from ingest.storage.r2 import R2Client
 
 UPSERT_RADAR = """
 INSERT INTO radars (site_id, icao, lat, lon, height_m, proj4, first_seen_at, last_seen_at)
-VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
+VALUES (%s, NULL, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (site_id) DO UPDATE SET
     lat = excluded.lat,
     lon = excluded.lon,
@@ -30,7 +34,7 @@ ON CONFLICT (site_id) DO UPDATE SET
 
 UPSERT_PRODUCT = """
 INSERT INTO products (code, mnemonic, unit, kind)
-VALUES (?, ?, ?, ?)
+VALUES (%s, %s, %s, %s)
 ON CONFLICT (code) DO UPDATE SET
     mnemonic = excluded.mnemonic,
     unit = excluded.unit,
@@ -42,7 +46,7 @@ INSERT INTO rasters (
     site_id, product_code, vol_time, r2_key, size_bytes, el_angle, vcp,
     value_scale, value_offset, max_level, width, height, cell_m, created_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (site_id, product_code, vol_time) DO UPDATE SET
     r2_key = excluded.r2_key,
     size_bytes = excluded.size_bytes,
@@ -66,7 +70,7 @@ def publish_cog(
     prod: RadialProduct,
     grid: AeqdGrid,
     r2: R2Client,
-    d1: D1Client,
+    pg: PgClient,
 ) -> PublishResult:
     cog_path = Path(cog_path)
     key = raster_key(prod.site_id, prod.spec.mnemonic, prod.vol_time)
@@ -76,7 +80,7 @@ def publish_cog(
 
     r2.upload_file(cog_path, key)
 
-    d1.execute_many(
+    pg.execute_many(
         [
             (
                 UPSERT_RADAR,
@@ -115,11 +119,11 @@ INSERT INTO phenomena (
     site_id, product_code, vol_time, kind, cell_id, lat, lon,
     azimuth_deg, range_km, attrs, created_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 
-def publish_phenomena(php: PhenomenaProduct, d1: D1Client) -> int:
+def publish_phenomena(php: PhenomenaProduct, pg: PgClient) -> int:
     """Publica los fenómenos de un producto. Idempotente por
     (sitio, producto, volumen): borra y reinserta — no hay clave natural
     por registro. Devuelve cuántos registros insertó."""
@@ -133,7 +137,7 @@ def publish_phenomena(php: PhenomenaProduct, d1: D1Client) -> int:
         ),
         (UPSERT_PRODUCT, [php.code, php.mnemonic, None, "phenomena"]),
         (
-            "DELETE FROM phenomena WHERE site_id = ? AND product_code = ? AND vol_time = ?",
+            "DELETE FROM phenomena WHERE site_id = %s AND product_code = %s AND vol_time = %s",
             [php.site_id, php.code, vol_iso],
         ),
     ]
@@ -156,13 +160,13 @@ def publish_phenomena(php: PhenomenaProduct, d1: D1Client) -> int:
         )
         for r in php.records
     ]
-    d1.execute_many(statements)
+    pg.execute_many(statements)
     return len(php.records)
 
 
 INSERT_VWP = """
 INSERT INTO vwp (site_id, vol_time, height_ft, wind_dir_deg, wind_speed_kt, rms_kt, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+VALUES (%s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (site_id, vol_time, height_ft) DO UPDATE SET
     wind_dir_deg = excluded.wind_dir_deg,
     wind_speed_kt = excluded.wind_speed_kt,
@@ -170,7 +174,7 @@ ON CONFLICT (site_id, vol_time, height_ft) DO UPDATE SET
 """
 
 
-def publish_vwp(vwp, d1: D1Client) -> int:
+def publish_vwp(vwp, pg: PgClient) -> int:
     """Publica un perfil VAD. Idempotente por volumen (delete + upsert)."""
     from ingest.phenomena.vwp import VWP_CODE, VWP_MNEMONIC
 
@@ -182,7 +186,7 @@ def publish_vwp(vwp, d1: D1Client) -> int:
             [vwp.site_id, vwp.lat, vwp.lon, vwp.height_m, radar_proj4(vwp.lat, vwp.lon), now, now],
         ),
         (UPSERT_PRODUCT, [VWP_CODE, VWP_MNEMONIC, "kt", "vwp"]),
-        ("DELETE FROM vwp WHERE site_id = ? AND vol_time = ?", [vwp.site_id, vol_iso]),
+        ("DELETE FROM vwp WHERE site_id = %s AND vol_time = %s", [vwp.site_id, vol_iso]),
     ]
     statements += [
         (
@@ -191,5 +195,5 @@ def publish_vwp(vwp, d1: D1Client) -> int:
         )
         for lv in vwp.levels
     ]
-    d1.execute_many(statements)
+    pg.execute_many(statements)
     return len(vwp.levels)
