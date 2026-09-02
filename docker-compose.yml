@@ -44,7 +44,7 @@ networks:
 
 services:
   api:
-    image: ghcr.io/vladimir1284/nexrad-l3-api:${IMAGE_TAG:-latest}
+    image: ghcr.io/vladimir1284/nexrad-l3-pipeline-api:${IMAGE_TAG:-latest}
     environment:
       PG_HOST: postgres
       PG_DB: ${PG_DB:-nexrad_l3}
