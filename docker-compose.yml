@@ -9,7 +9,7 @@
 #   printf '%s' "$R2_ACCESS_KEY_ID"          | docker secret create nexrad_r2_access_key_id -
 #   printf '%s' "$R2_SECRET_ACCESS_KEY"      | docker secret create nexrad_r2_secret_access_key -
 #   printf '%s' "$PG_PASSWORD"               | docker secret create nexrad_pg_password -
-#   printf '%s' "$NEXRAD_API_TOKEN_OPS"      | docker secret create nexrad_api_token_ops -
+#   printf '%s' "$NEXRAD_API_TOKEN_OPS"      | docker secret create nexrad_api_token_ops_v2 -
 #   printf '%s' "$BETTERSTACK_SOURCE_TOKEN"  | docker secret create nexrad_betterstack_source_token -
 #
 # Postgres NO vive en este stack: es el Postgres compartido que ya corre
@@ -50,14 +50,14 @@ services:
       PG_DB: ${PG_DB:-nexrad_l3}
       PG_USER: ${PG_USER:-nexrad}
       PG_PASSWORD_FILE: /run/secrets/nexrad_pg_password
-      NEXRAD_API_TOKEN_OPS_FILE: /run/secrets/nexrad_api_token_ops
+      NEXRAD_API_TOKEN_OPS_FILE: /run/secrets/nexrad_api_token_ops_v2
     networks:
       - default
       - postgres-public
       - traefik-public
     secrets:
       - nexrad_pg_password
-      - nexrad_api_token_ops
+      - nexrad_api_token_ops_v2
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
       interval: 30s
@@ -260,7 +260,7 @@ secrets:
     external: true
   nexrad_pg_password:
     external: true
-  nexrad_api_token_ops:
+  nexrad_api_token_ops_v2:
     external: true
   nexrad_betterstack_source_token:
     external: true
