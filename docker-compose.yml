@@ -11,6 +11,7 @@
 #   printf '%s' "$PG_PASSWORD"               | docker secret create nexrad_pg_password -
 #   printf '%s' "$NEXRAD_API_TOKEN_OPS"      | docker secret create nexrad_api_token_ops_v2 -
 #   printf '%s' "$BETTERSTACK_SOURCE_TOKEN"  | docker secret create nexrad_betterstack_source_token -
+#   printf '%s' "$NEXRAD_VIEWER_PG_PASSWORD" | docker secret create nexrad_viewer_pg_password -
 #
 # Postgres NO vive en este stack: es el Postgres compartido que ya corre
 # en otro stack del mismo Swarm (servicio `postgres`, red externa
@@ -76,6 +77,46 @@ services:
         - "traefik.http.routers.nexrad-api.entrypoints=websecure"
         - "traefik.http.routers.nexrad-api.tls=true"
         - "traefik.http.services.nexrad-api.loadbalancer.server.port=8080"
+        - "traefik.docker.network=traefik-public"
+
+  viewer:
+    # lamula-webviewer: SSR Nuxt, habla Postgres directo (rol read-only
+    # nexrad_viewer, ver runbook de migración) — no pasa por `api`. La
+    # imagen no soporta convención *_FILE de secrets (a diferencia de
+    # ingest/api), así que el entrypoint exporta la password leyéndola
+    # del secret montado antes de arrancar el server.
+    image: ghcr.io/vladimir1284/lamula-webviewer:${IMAGE_TAG:-latest}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - export NUXT_PG_PASSWORD="$$(cat /run/secrets/nexrad_viewer_pg_password)" && exec node .output/server/index.mjs
+    environment:
+      NUXT_PG_HOST: postgres
+      NUXT_PG_DATABASE: ${PG_DB:-nexrad_l3}
+      NUXT_PG_USER: nexrad_viewer
+    networks:
+      - default
+      - postgres-public
+      - traefik-public
+    secrets:
+      - nexrad_viewer_pg_password
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 256M
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.nexrad-viewer.rule=Host(`webviewer.ladetec.com`)"
+        - "traefik.http.routers.nexrad-viewer.entrypoints=websecure"
+        - "traefik.http.routers.nexrad-viewer.tls=true"
+        - "traefik.http.services.nexrad-viewer.loadbalancer.server.port=3000"
         - "traefik.docker.network=traefik-public"
 
   pg-backup:
@@ -261,6 +302,8 @@ secrets:
   nexrad_pg_password:
     external: true
   nexrad_api_token_ops_v2:
+    external: true
+  nexrad_viewer_pg_password:
     external: true
   nexrad_betterstack_source_token:
     external: true
