@@ -17,6 +17,13 @@ RUN uv sync --locked --no-install-project --no-dev
 
 COPY README.md ./
 COPY ingest/ ingest/
+# db/: scripts de migración/backfill de Postgres (apply_pg_migrations.py,
+# backfill_d1_to_pg.py) + el schema (pg_migrations/) — no son parte de
+# l3proc, pero viajan en la misma imagen para poder correrlos con
+# `docker run --entrypoint python` desde cualquier nodo del Swarm sin
+# necesitar un checkout del repo ahí.
+COPY db/*.py db/
+COPY db/pg_migrations/ db/pg_migrations/
 RUN uv sync --locked --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH"
