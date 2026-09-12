@@ -120,8 +120,7 @@ services:
         - "traefik.docker.network=traefik-public"
 
   pg-backup:
-    image: postgres:16-alpine
-    entrypoint: ["/bin/sh", "/backup.sh"]
+    image: ghcr.io/vladimir1284/nexrad-l3-pipeline-pg-backup:${IMAGE_TAG:-latest}
     environment:
       PG_HOST: postgres
       PG_DB: ${PG_DB:-nexrad_l3}
@@ -134,8 +133,6 @@ services:
     networks:
       - default
       - postgres-public
-    volumes:
-      - ./scripts/pg-backup.sh:/backup.sh:ro
     secrets:
       - nexrad_pg_password
       - nexrad_r2_access_key_id
