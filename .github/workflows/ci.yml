@@ -51,7 +51,7 @@ jobs:
       - name: Arrancar S3 Storage Mock
         run: |
           docker run -d --name minio -p 9000:9000 \
-            johannesboyne/gofakes3:latest -host :9000 -initial-bucket nexrad-test
+            johannesboyne/gofakes3:latest /main -host :9000 -initial-bucket nexrad-test
           for i in $(seq 1 30); do
             curl -sf http://localhost:9000/ && break
             sleep 1
