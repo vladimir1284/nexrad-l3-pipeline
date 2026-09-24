@@ -48,13 +48,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - name: Arrancar MinIO
+      - name: Arrancar S3 Storage Mock
         run: |
           docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:RELEASE.2024-01-18T22-51-28Z server /data
+            johannesboyne/gofakes3:latest -host :9000 -initial-bucket nexrad-test
           for i in $(seq 1 30); do
-            curl -sf http://localhost:9000/minio/health/live && break
+            curl -sf http://localhost:9000/ && break
             sleep 1
           done
       - run: uv sync --locked
