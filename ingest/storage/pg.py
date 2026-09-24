@@ -13,6 +13,7 @@ Postgres directo esa compensación deja de ser necesaria — se conserva
 el mismo orden solo porque no hace daño, no porque siga haciendo falta.
 """
 
+import contextlib
 from typing import Any
 
 import psycopg
@@ -24,26 +25,54 @@ class PgError(Exception):
 
 
 class PgClient:
+    """Reconecta una vez ante conexión caída (server restart/idle timeout/blip de red):
+    servicios de larga vida (`l3proc wind`/`watch`) guardan una instancia por fuera de su
+    loop, así que sin esto un solo corte mata las corridas hasta reiniciar el contenedor."""
+
     def __init__(self, dsn: str, *, conn: psycopg.Connection | None = None) -> None:
+        self._dsn = dsn
+        self._conn = conn or self._connect()
+
+    def _connect(self) -> psycopg.Connection:
         try:
-            self._conn = conn or psycopg.connect(dsn, row_factory=dict_row, autocommit=True)
+            return psycopg.connect(self._dsn, row_factory=dict_row, autocommit=True)
         except psycopg.Error as exc:
             raise PgError(f"no se pudo conectar a Postgres: {exc}") from exc
+
+    def _reconnect(self) -> None:
+        with contextlib.suppress(psycopg.Error):
+            self._conn.close()
+        self._conn = self._connect()
 
     def execute(self, sql: str, params: list[Any] | tuple[Any, ...] = ()) -> list[dict]:
         try:
             cur = self._conn.execute(sql, params)
+        except psycopg.OperationalError:
+            self._reconnect()
+            try:
+                cur = self._conn.execute(sql, params)
+            except psycopg.Error as exc:
+                raise PgError(f"error de Postgres tras reconectar: {exc}") from exc
         except psycopg.Error as exc:
             raise PgError(f"error de Postgres: {exc}") from exc
         return cur.fetchall() if cur.description else []
 
     def execute_many(self, statements: list[tuple[str, list[Any]]]) -> None:
         try:
-            with self._conn.transaction():
-                for sql, params in statements:
-                    self._conn.execute(sql, params)
+            self._execute_many_tx(statements)
+        except psycopg.OperationalError:
+            self._reconnect()
+            try:
+                self._execute_many_tx(statements)
+            except psycopg.Error as exc:
+                raise PgError(f"error de Postgres tras reconectar: {exc}") from exc
         except psycopg.Error as exc:
             raise PgError(f"error de Postgres: {exc}") from exc
+
+    def _execute_many_tx(self, statements: list[tuple[str, list[Any]]]) -> None:
+        with self._conn.transaction():
+            for sql, params in statements:
+                self._conn.execute(sql, params)
 
     def close(self) -> None:
         self._conn.close()
