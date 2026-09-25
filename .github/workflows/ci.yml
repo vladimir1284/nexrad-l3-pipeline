@@ -18,8 +18,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      # MinIO local como R2 para los tests de integración S3.
-      R2_ENDPOINT: http://localhost:9000
+      # S3Mock (adobe/s3mock) local como R2 para los tests de integración S3
+      # — MinIO ya no se puede tirar anónimo (quay.io/Docker Hub dan 401/
+      # pull denied) y el gofakes3 empaquetado en johannesboyne/gofakes3 es
+      # un build viejo con bugs de protocolo (cierra la conexión en PUT,
+      # HeadObject sin ContentLength).
+      R2_ENDPOINT: http://localhost:9090
       R2_BUCKET: nexrad-test
       R2_ACCESS_KEY_ID: minioadmin
       R2_SECRET_ACCESS_KEY: minioadmin
@@ -50,19 +54,17 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - name: Arrancar S3 Storage Mock
         run: |
-          # El binario /main de esta imagen solo acepta -db/-port (verificado
-          # con su --help vía docker logs); -host/-backend/-initialbucket son
-          # de una versión de gofakes3 más nueva y no existen aquí.
-          docker run -d --name minio -p 9000:9000 \
-            johannesboyne/gofakes3:latest /main -port :9000
+          docker run -d --name s3mock -p 9090:9090 \
+            -e COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS=nexrad-test \
+            adobe/s3mock:latest
           ready=0
           for i in $(seq 1 30); do
-            curl -sf http://localhost:9000/ && { ready=1; break; }
+            curl -sf http://localhost:9090/favicon.ico && { ready=1; break; }
             sleep 1
           done
           if [ "$ready" -ne 1 ]; then
             echo "S3 mock no respondió a tiempo" >&2
-            docker logs minio
+            docker logs s3mock
             exit 1
           fi
       - run: uv sync --locked
