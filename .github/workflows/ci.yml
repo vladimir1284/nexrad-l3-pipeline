@@ -50,8 +50,11 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - name: Arrancar S3 Storage Mock
         run: |
+          # El binario /main de esta imagen solo acepta -db/-port (verificado
+          # con su --help vía docker logs); -host/-backend/-initialbucket son
+          # de una versión de gofakes3 más nueva y no existen aquí.
           docker run -d --name minio -p 9000:9000 \
-            johannesboyne/gofakes3:latest /main -backend memory -host :9000 -initialbucket nexrad-test
+            johannesboyne/gofakes3:latest /main -port :9000
           ready=0
           for i in $(seq 1 30); do
             curl -sf http://localhost:9000/ && { ready=1; break; }
