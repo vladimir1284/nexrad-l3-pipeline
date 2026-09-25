@@ -51,11 +51,17 @@ jobs:
       - name: Arrancar S3 Storage Mock
         run: |
           docker run -d --name minio -p 9000:9000 \
-            johannesboyne/gofakes3:latest /main -host :9000 -initial-bucket nexrad-test
+            johannesboyne/gofakes3:latest /main -backend memory -host :9000 -initialbucket nexrad-test
+          ready=0
           for i in $(seq 1 30); do
-            curl -sf http://localhost:9000/ && break
+            curl -sf http://localhost:9000/ && { ready=1; break; }
             sleep 1
           done
+          if [ "$ready" -ne 1 ]; then
+            echo "S3 mock no respondió a tiempo" >&2
+            docker logs minio
+            exit 1
+          fi
       - run: uv sync --locked
       - name: Aplicar migraciones Postgres
         run: uv run python db/apply_pg_migrations.py "host=localhost port=5432 dbname=nexrad_test user=nexrad password=nexrad"
