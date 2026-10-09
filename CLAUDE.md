@@ -68,6 +68,6 @@ Docker Swarm de **nodo único** (VPS con Portainer), imagen única del pipeline 
 
 ## Alcance del demo
 
-- Sitios: 2–4 radares **configurables** (`NEXRAD_SITES`, propuesta: AMX, BYX, JUA — ids de 3 chars del feed, sin prefijo K/T). El mapeo a ICAO completo (KAMX…) queda pendiente de config (los ficheros del bucket no traen header WMO).
+- Sitios: radares **configurables** (`NEXRAD_SITES`, ahora AMX, BYX, JUA, HDC, EOX — ids de 3 chars del feed, sin prefijo K/T; KHDC/KEOX añadidos 2026-10-09). El mapeo a ICAO completo (KAMX…) queda pendiente de config (los ficheros del bucket no traen header WMO).
 - Productos (**códigos legacy 19/20/27/41/78/79/80/94 retirados del feed** — verificado 2026-07-04; **59/`NHI` y 61/`NTV` tampoco fluyen** — barrido jun-jul 2026 con tormentas activas = 0 claves; la señal TVS viaja en la columna TVS del NMD): raster 153/`N0B`, 154/`N0G`, 135/`EET`, 134/`DVL`, 170/`DAA`, 173/`DU3`, 172/`DTA`; fenómenos 141/`NMD`, 58/`NST`; perfil 48/`NVW`. Registro de specs y calibraciones en `ingest/products.py` (gate width por convención ICD; calibración por estrategia: linear10/eet/dvl/dpr — DVL usa float16 NEXRAD con bias 16, NO IEEE). El watcher enruta por contenido: raster → fenómenos → vwp.
 - Muestras reales commiteadas en `tests/data/` (golden tests deterministas sin red). Goldens: sha256 de niveles/malla + argmax + counts.

@@ -27,7 +27,7 @@
   ],
   "vars": {
     "API_BASE_URL": "https://nexrad-api.ladetec.com",
-    "NEXRAD_SITES": "AMX,BYX,JUA",
+    "NEXRAD_SITES": "AMX,BYX,JUA,HDC,EOX",
     "MAX_AGE_MIN": "30",
     "WIND_MIN_LEAD_H": "2", // viento fresco = cobertura ≥ 2 h por delante; margen frente a LOOKAHEAD_HOURS=4 del Worker wind (cron horario, decae 1:1 entre corridas)
     "LTG_MAX_AGE_MIN": "30", // rayos frescos = último cubo de 300 s con menos de 30 min

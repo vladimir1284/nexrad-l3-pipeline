@@ -152,7 +152,7 @@ services:
     image: ghcr.io/vladimir1284/nexrad-l3-pipeline:${IMAGE_TAG:-latest}
     command: ["poll", "/data/incoming", "--interval", "60"]
     environment:
-      NEXRAD_SITES: ${NEXRAD_SITES:-AMX,BYX,JUA}
+      NEXRAD_SITES: ${NEXRAD_SITES:-AMX,BYX,JUA,HDC,EOX}
       # NEXRAD_PRODUCTS: sin definir = todos los registrados (F4: N0B)
       BETTERSTACK_HOST: ${BETTERSTACK_HOST}
       BETTERSTACK_SOURCE_TOKEN_FILE: /run/secrets/nexrad_betterstack_source_token
