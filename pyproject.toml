@@ -26,6 +26,7 @@ l3proc = "ingest.cli:main"
 dev = [
     "pytest>=8",
     "ruff>=0.11",
+    "wradlib>=2.9.6",
 ]
 
 [build-system]

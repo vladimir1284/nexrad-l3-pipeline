@@ -348,12 +348,17 @@ interface ExpiredR2Keys {
   rasters: string[];
   wind_grids: string[];
   lightning_buckets: string[];
+  // Opcional a propósito: `api/` se despliega antes que este Worker, pero
+  // si el orden se invierte una vez, el sweep sigue corriendo sin el
+  // mosaico en vez de reventar.
+  mosaic_rasters?: string[];
 }
 
 interface PurgeResult {
   rasters: number;
   wind_grids: number;
   lightning_buckets: number;
+  mosaic_rasters?: number;
   phenomena: number;
   vwp: number;
 }
@@ -378,11 +383,12 @@ async function runSweep(env: Env): Promise<void> {
   await deleteR2Keys(env, expired.rasters);
   await deleteR2Keys(env, expired.wind_grids);
   await deleteR2Keys(env, expired.lightning_buckets);
+  await deleteR2Keys(env, expired.mosaic_rasters ?? []);
 
   try {
     const deleted = await apiPost<PurgeResult>(env, "/v1/sweep/purge", { cutoff });
     console.log(
-      `sweep: cutoff=${cutoff} rasters=${deleted.rasters} wind_grids=${deleted.wind_grids} lightning_buckets=${deleted.lightning_buckets} phenomena=${deleted.phenomena} vwp=${deleted.vwp}`,
+      `sweep: cutoff=${cutoff} rasters=${deleted.rasters} wind_grids=${deleted.wind_grids} lightning_buckets=${deleted.lightning_buckets} phenomena=${deleted.phenomena} vwp=${deleted.vwp} mosaic_rasters=${deleted.mosaic_rasters ?? 0}`,
     );
   } catch (exc) {
     console.error("sweep: objetos R2 borrados pero la purga de filas falló (reintenta la próxima hora):", exc);
@@ -395,6 +401,10 @@ interface ReconcileKeys {
   rasters: string[];
   wind_grids: string[];
   lightning_buckets: string[];
+  // Opcional a propósito: `api/` se despliega antes que este Worker, pero
+  // si el orden se invierte una vez, el sweep sigue corriendo sin el
+  // mosaico en vez de reventar.
+  mosaic_rasters?: string[];
 }
 
 /** Compara el bucket con lo que Postgres dice que existe; borra
@@ -420,12 +430,22 @@ async function reconcile(env: Env): Promise<void> {
     console.error("reconcile: API inalcanzable, se omite este ciclo (reintenta la próxima hora):", exc);
     return;
   }
-  const inDb = new Map<string, "rasters" | "wind_grids" | "lightning_buckets">();
-  for (const table of ["rasters", "wind_grids", "lightning_buckets"] as const) {
-    for (const key of keys[table]) inDb.set(key, table);
+  const inDb = new Map<string, "rasters" | "wind_grids" | "lightning_buckets" | "mosaic_rasters">();
+  for (const table of ["rasters", "wind_grids", "lightning_buckets", "mosaic_rasters"] as const) {
+    for (const key of keys[table] ?? []) inDb.set(key, table);
   }
 
-  const orphans = [...inR2].filter((k) => !inDb.has(k)).sort();
+  // Si `api/` todavía no conoce mosaic_rasters (despliegue a medias), sus
+  // claves no están en inDb y TODOS los COG del mosaico quedarían
+  // clasificados como huérfanos — es decir, se borrarían. Por eso la clave
+  // lleva prefijo propio: sin la lista, el prefijo entero queda fuera del
+  // barrido en vez de borrarse.
+  const mosaicKnown = keys.mosaic_rasters !== undefined;
+  const orphans = [...inR2]
+    .filter((k) => !inDb.has(k))
+    .filter((k) => mosaicKnown || !k.startsWith("mosaic/"))
+    .sort();
+  if (!mosaicKnown) console.warn("reconcile: api/ sin mosaic_rasters — prefijo mosaic/ excluido del barrido");
   const dangling = [...inDb.keys()].filter((k) => !inR2.has(k)).sort();
   // Filas más recientes que la gracia pueden apuntar a objetos aún no
   // listados arriba — verificar contra el bucket antes de declararlas
@@ -438,7 +458,7 @@ async function reconcile(env: Env): Promise<void> {
   if (orphans.length || confirmed.length) {
     console.warn(`reconcile: ${orphans.length} huérfanos R2, ${confirmed.length} filas colgantes (corrigiendo)`);
     await deleteR2Keys(env, orphans);
-    for (const table of ["rasters", "wind_grids", "lightning_buckets"] as const) {
+    for (const table of ["rasters", "wind_grids", "lightning_buckets", "mosaic_rasters"] as const) {
       const tableKeys = confirmed.filter((k) => inDb.get(k) === table);
       if (tableKeys.length) {
         try {

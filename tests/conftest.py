@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 DATA_DIR = Path(__file__).parent / "data"
-PG_SCHEMA = Path(__file__).parent.parent / "db" / "pg_migrations" / "0001_init.sql"
+PG_MIGRATIONS = Path(__file__).parent.parent / "db" / "pg_migrations"
 
 
 def sqlite_compatible_pg_schema() -> str:
@@ -17,9 +17,8 @@ def sqlite_compatible_pg_schema() -> str:
     lo que SQLite no puede cubrir (tipos reales, FKs enforced) vive en
     tests/test_storage_integration.py contra un Postgres real (gated).
     """
-    return PG_SCHEMA.read_text().replace(
-        "BIGSERIAL PRIMARY KEY", "INTEGER PRIMARY KEY AUTOINCREMENT"
-    )
+    sql = "\n".join(p.read_text() for p in sorted(PG_MIGRATIONS.glob("*.sql")))
+    return sql.replace("BIGSERIAL PRIMARY KEY", "INTEGER PRIMARY KEY AUTOINCREMENT")
 
 
 # Muestras reales del bucket público unidata-nexrad-level3, commiteadas

@@ -291,6 +291,61 @@ services:
         limits:
           memory: 512M
 
+  # Mosaico multi-radar. Lee los COG por radar de vuelta desde R2 (el
+  # procesador borra los locales) y compone un COG por slot cerrado.
+  # Memoria: el pico es el stack de N fuentes en float32 sobre la malla del
+  # dominio — ~50 MB por array a 1000 m con 4 sitios. A 500 m sube ~4x, así
+  # que bajar MOSAIC_CELL_M exige subir este límite.
+  mosaic:
+    image: ghcr.io/vladimir1284/nexrad-l3-pipeline:${IMAGE_TAG:-latest}
+    command: ["mosaic", "--interval", "60", "--heartbeat", "/tmp/.mosaic_heartbeat"]
+    environment:
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      R2_BUCKET: ${R2_BUCKET}
+      PG_HOST: postgres
+      PG_DB: ${PG_DB:-nexrad_l3}
+      PG_USER: ${PG_USER:-nexrad}
+      R2_ACCESS_KEY_ID_FILE: /run/secrets/nexrad_r2_access_key_id
+      R2_SECRET_ACCESS_KEY_FILE: /run/secrets/nexrad_r2_secret_access_key
+      PG_PASSWORD_FILE: /run/secrets/nexrad_pg_password
+      BETTERSTACK_HOST: ${BETTERSTACK_HOST}
+      BETTERSTACK_SOURCE_TOKEN_FILE: /run/secrets/nexrad_betterstack_source_token
+      # Pertenencia, no geometría: la malla sale de las filas vivas de radars.
+      MOSAIC_DOMAINS: ${MOSAIC_DOMAINS:-GULF=AMX,BYX,HDC,EOX}
+      MOSAIC_PRODUCTS: ${MOSAIC_PRODUCTS:-153}
+      MOSAIC_CELL_M: ${MOSAIC_CELL_M:-1000}
+      MOSAIC_METHOD: ${MOSAIC_METHOD:-weighted}
+      # Calibración del campo de calidad: la ajusta el experto sin redeploy.
+      MOSAIC_H_REF_M: ${MOSAIC_H_REF_M:-4000}
+      MOSAIC_R_REF_M: ${MOSAIC_R_REF_M:-200000}
+      MOSAIC_SLOT_S: ${MOSAIC_SLOT_S:-300}
+      MOSAIC_SLOT_TOLERANCE_S: ${MOSAIC_SLOT_TOLERANCE_S:-150}
+      MOSAIC_MIN_SITES: ${MOSAIC_MIN_SITES:-1}
+      MOSAIC_LOOKBACK_S: ${MOSAIC_LOOKBACK_S:-3600}
+      MOSAIC_MAX_SLOTS: ${MOSAIC_MAX_SLOTS:-12}
+    networks:
+      - default
+      - postgres-public
+    secrets:
+      - nexrad_r2_access_key_id
+      - nexrad_r2_secret_access_key
+      - nexrad_pg_password
+      - nexrad_betterstack_source_token
+    healthcheck:
+      test: ["CMD", "l3proc", "health", "--heartbeat", "/tmp/.mosaic_heartbeat", "--max-age", "300"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      resources:
+        limits:
+          memory: 1G
+
 volumes:
   incoming:
 

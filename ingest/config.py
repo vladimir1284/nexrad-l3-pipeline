@@ -70,3 +70,66 @@ class StorageConfig:
             f"host={self.pg_host} port={self.pg_port} dbname={self.pg_db} "
             f"user={self.pg_user} password={self.pg_password}"
         )
+
+
+@dataclass(frozen=True)
+class MosaicConfig:
+    """Parámetros del mosaico multi-radar.
+
+    `h_ref`/`r_ref` son la calibración del campo de calidad y los ajusta el
+    experto mirando solapes reales: por eso van por entorno y no horneados en
+    la imagen. `method` permite cambiar de promedio pesado a "gana el haz más
+    bajo" sin redeploy de código.
+
+    `MOSAIC_DOMAINS` declara la pertenencia, no la geometría: la malla se
+    calcula de las filas vivas de `radars`, igual que todo lo demás aquí.
+    Formato: ``GULF=AMX,BYX,HDC,EOX;OTRO=XXX,YYY``.
+    """
+
+    domains: tuple[tuple[str, tuple[str, ...]], ...]
+    products: tuple[int, ...]
+    cell_m: float
+    method: str
+    h_ref_m: float
+    r_ref_m: float
+    slot_s: int
+    slot_tolerance_s: int
+    min_sites: int
+    lookback_s: int
+    max_slots: int
+
+    @classmethod
+    def from_env(cls) -> "MosaicConfig":
+        method = _env("MOSAIC_METHOD", "weighted")
+        if method not in ("weighted", "lowest_beam"):
+            raise ConfigError(f"MOSAIC_METHOD inválido: {method!r}")
+        return cls(
+            domains=_parse_domains(_env("MOSAIC_DOMAINS", "")),
+            products=tuple(int(c) for c in _env("MOSAIC_PRODUCTS", "153").split(",") if c.strip()),
+            cell_m=float(_env("MOSAIC_CELL_M", "1000")),
+            method=method,
+            h_ref_m=float(_env("MOSAIC_H_REF_M", "4000")),
+            r_ref_m=float(_env("MOSAIC_R_REF_M", "200000")),
+            slot_s=int(_env("MOSAIC_SLOT_S", "300")),
+            slot_tolerance_s=int(_env("MOSAIC_SLOT_TOLERANCE_S", "150")),
+            min_sites=int(_env("MOSAIC_MIN_SITES", "1")),
+            lookback_s=int(_env("MOSAIC_LOOKBACK_S", "3600")),
+            max_slots=int(_env("MOSAIC_MAX_SLOTS", "12")),
+        )
+
+
+def _parse_domains(raw: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """``GULF=AMX,BYX;OTRO=XXX`` -> (("GULF", ("AMX","BYX")), ("OTRO", ("XXX",)))."""
+    salida = []
+    for bloque in raw.split(";"):
+        bloque = bloque.strip()
+        if not bloque:
+            continue
+        if "=" not in bloque:
+            raise ConfigError(f"MOSAIC_DOMAINS mal formado en {bloque!r} (falta '=')")
+        domain_id, sitios = bloque.split("=", 1)
+        miembros = tuple(s.strip() for s in sitios.split(",") if s.strip())
+        if not domain_id.strip() or not miembros:
+            raise ConfigError(f"MOSAIC_DOMAINS mal formado en {bloque!r}")
+        salida.append((domain_id.strip(), miembros))
+    return tuple(salida)

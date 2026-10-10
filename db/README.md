@@ -87,3 +87,41 @@ Spec acordada con el viewer 2026-07-19 (migración `0004_lightning_buckets.sql`;
 - Frontera de cubos (regla de ingesta): flashes asignados por el tiempo real del primer evento; se lista un frame GLM extra (`s = bucket_end` inclusive) porque un flash que cruza frames aparece en el fichero posterior con el primer evento hacia atrás; lo que caiga fuera de `[0, bucket_s)` se descarta. Ojo: el cubo `:55` mete el frame extra en el prefijo de la hora siguiente (dos LIST).
 - Retención: 72 h en `nexrad-l3-ops` (sweep por `bucket_start`, no por `r2_key` — hay filas sin objeto; la reconciliación ignora `r2_key NULL`). **Orden de deploy/arranque: `ops` antes que la primera corrida real de ingesta** (Worker o el servicio Docker) — si no, la reconciliación borra los primeros JSON como huérfanos (pasada la gracia de 1 h). `ops` no cambió con la migración a Docker.
 - CORS: mismo bucket que COGs/viento, allowlist ya cubierta.
+
+## `mosaic_*` — mosaico multi-radar (parte del contrato)
+
+Tres tablas (`0002_mosaic.sql`). Nada de lo existente cambia.
+
+**`mosaic_domains`** — una malla AEQD común a N radares. `proj4` se registra
+tal cual en el viewer, igual que `radars.proj4`. Convención idéntica a los
+COG por radar: malla centrada, fila 0 al norte, origen implícito en
+`(-width·cell_m/2, +height·cell_m/2)`. `radius_m` es el alcance nativo del
+producto que dimensionó la malla.
+
+**`mosaic_domain_sites`** — qué radares componen el dominio. Normalizado con
+FK real, no un JSON: el viewer resta `contributing` a esta lista para pintar
+los radares **ausentes** de cada slot.
+
+**`mosaic_rasters`** — un COG compuesto por `(domain_id, product_code,
+slot_time)`.
+
+| Columna | Uso en el viewer |
+|---|---|
+| `slot_time`, `slot_s` | rejilla temporal propia del mosaico (slots UTC fijos, 300 s) — no son los `vol_time` de ningún radar |
+| `r2_key` | → URL del COG (prefijo `mosaic/`) |
+| `value_scale`, `value_offset`, `max_level` | calibración **canónica del producto**, fija entre slots — no heredada de ninguna fila de `rasters` |
+| `proj4`, `width`, `height`, `cell_m` | geometría de **ese** COG. Añadir un radar a un dominio recalcula su malla, y un COG viejo tiene que seguir georreferenciándose con la suya |
+| `method` | `weighted` \| `lowest_beam` |
+| `contributing` | JSON `[{"site","vol_time","lag_s"}]` — procedencia del slot |
+
+`product_code` reusa el código NEXRAD: el mosaico se identifica por dominio,
+así que el catálogo de productos del viewer y su paleta valen sin cambios.
+No hay código de producto inventado.
+
+Un slot se compone **con los sitios que haya** dentro de tolerancia, no con
+todos: un radar caído no apaga el mosaico. Por eso `contributing` es parte
+del contrato y no un campo de depuración — sin él, el viewer no puede decir
+qué está mirando el usuario.
+
+`N0G` no se compone (velocidad radial relativa al radar). Detalle completo
+del cálculo en `docs/mosaico.md`.

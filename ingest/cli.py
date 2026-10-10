@@ -187,6 +187,39 @@ def _cmd_lightning(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_mosaic(args: argparse.Namespace) -> int:
+    from ingest.config import ConfigError, MosaicConfig, StorageConfig
+    from ingest.mosaic.service import MosaicComposer, run_mosaic
+    from ingest.storage.pg import PgClient
+    from ingest.storage.r2 import R2Client
+
+    try:
+        cfg = StorageConfig.from_env()
+        mcfg = MosaicConfig.from_env()
+    except ConfigError as exc:
+        print(f"l3proc: {exc}", file=sys.stderr)
+        return 3
+    if not mcfg.domains:
+        print("l3proc: MOSAIC_DOMAINS vacío, no hay nada que componer", file=sys.stderr)
+        return 3
+    r2 = R2Client(cfg.r2_endpoint, cfg.r2_bucket, cfg.r2_access_key_id, cfg.r2_secret_access_key)
+    stop = Event()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda *_: stop.set())
+    with PgClient(cfg.pg_dsn) as pg:
+        composer = MosaicComposer(pg, r2, mcfg)
+        if args.once:
+            stats = composer.run_once()
+            print(
+                f"slots={stats['slots']} compuestos={stats['composed']} "
+                f"saltados={stats['skipped']} fuentes={stats['sources']} "
+                f"fallidos={stats['failed']}"
+            )
+            return 0 if stats["failed"] == 0 else 1
+        run_mosaic(composer, interval_s=args.interval, heartbeat=args.heartbeat, stop=stop)
+    return 0
+
+
 def _cmd_health(args: argparse.Namespace) -> int:
     import time
 
@@ -365,6 +398,21 @@ def main(argv: list[str] | None = None) -> int:
         help="fichero heartbeat (def. /tmp/.lightning_heartbeat)",
     )
     p_lightning.set_defaults(func=_cmd_lightning)
+
+    p_mosaic = sub.add_parser(
+        "mosaic", help="servicio: mosaico multi-radar → COG en R2 + filas en mosaic_rasters"
+    )
+    p_mosaic.add_argument(
+        "--interval", type=float, default=60.0, help="segundos entre corridas (def. 60)"
+    )
+    p_mosaic.add_argument("--once", action="store_true", help="una corrida y salir")
+    p_mosaic.add_argument(
+        "--heartbeat",
+        type=Path,
+        default=Path("/tmp/.mosaic_heartbeat"),
+        help="fichero heartbeat (def. /tmp/.mosaic_heartbeat)",
+    )
+    p_mosaic.set_defaults(func=_cmd_mosaic)
 
     p_health = sub.add_parser("health", help="healthcheck: edad de heartbeat y backlog")
     p_health.add_argument(
