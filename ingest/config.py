@@ -70,3 +70,35 @@ class StorageConfig:
             f"host={self.pg_host} port={self.pg_port} dbname={self.pg_db} "
             f"user={self.pg_user} password={self.pg_password}"
         )
+
+
+@dataclass(frozen=True)
+class MosaicConfig:
+    """Parámetros del mosaico multi-radar.
+
+    `h_ref`/`r_ref` son la calibración del campo de calidad y los ajusta el
+    experto mirando solapes reales: por eso van por entorno y no horneados en
+    la imagen. `method` permite cambiar de promedio pesado a "gana el haz más
+    bajo" sin redeploy de código.
+    """
+
+    cell_m: float
+    method: str
+    h_ref_m: float
+    r_ref_m: float
+    slot_s: int
+    slot_tolerance_s: int
+
+    @classmethod
+    def from_env(cls) -> "MosaicConfig":
+        method = _env("MOSAIC_METHOD", "weighted")
+        if method not in ("weighted", "lowest_beam"):
+            raise ConfigError(f"MOSAIC_METHOD inválido: {method!r}")
+        return cls(
+            cell_m=float(_env("MOSAIC_CELL_M", "1000")),
+            method=method,
+            h_ref_m=float(_env("MOSAIC_H_REF_M", "4000")),
+            r_ref_m=float(_env("MOSAIC_R_REF_M", "200000")),
+            slot_s=int(_env("MOSAIC_SLOT_S", "300")),
+            slot_tolerance_s=int(_env("MOSAIC_SLOT_TOLERANCE_S", "150")),
+        )
