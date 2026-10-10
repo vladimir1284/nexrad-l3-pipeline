@@ -31,3 +31,16 @@ Decisiones cerradas. No re-litigar sin motivo nuevo.
 - **Despliegue en Docker Swarm** (nodo único). Stack file con `deploy:`, secrets de Swarm para credenciales R2/D1, healthchecks nativos. Ver [Plan de implementación](plan-implementacion.md).
 - **CI en GitHub Actions**, imágenes en `ghcr.io`. Swarm hace pull del registry, nunca build local.
 - **Alertas por Telegram** (bot existente) desde el monitor de frescura.
+
+## Mosaico multi-radar
+
+- **Composición en el pipeline, no apilado en el cliente.** Apilar N capas en el viewer resuelve la vista, no el dato: en el solape gana la capa de arriba, no la medida mejor. Un COG compuesto por slot también baja de N fetch por frame a uno.
+- **Promedio pesado en Z lineal, nunca en dBZ.** Promediar logaritmos hunde los núcleos (40 y 50 dBZ dan 47.4, no 45). Regla alternativa `lowest_beam` cuando interese preservar gradientes. La regla del **máximo** (la clásica de GEMPAK) queda **descartada**, no pendiente: sesga alto y premia al radar que sobrepasa la tormenta.
+- **Calidad por altura de haz (tierra efectiva 4/3) y volumen de muestreo**, ambas gaussianas. `h_ref`/`r_ref` por variable de entorno porque los calibra el experto mirando solapes reales, y un redeploy por iteración no es aceptable.
+- **wradlib solo como dependencia de desarrollo.** Es la referencia del método y se contrasta contra ella en test, pero en runtime arrastra dask/netCDF4/xradar y sus helpers de calidad asumen volúmenes polares, no L3 ya grillado.
+- **`N0G` no se compone.** La velocidad radial es relativa al radar: dos radares miden componentes distintas del mismo viento. No es una limitación de implementación.
+- **Tablas propias, no filas en `rasters`.** `rasters.site_id` tiene FK a `radars` y un mosaico no tiene sitio único; un pseudo-radar "GULF" se colaría en el selector del viewer con lat/lon inventados y sin phenomena/vwp. Y el mosaico tiene rejilla temporal, procedencia y regla de composición propias.
+- **Geometría guardada por fila, además de por dominio.** Añadir un radar a un dominio recalcula su malla; sin la geometría en la fila, el viewer pintaría los COG viejos desplazados.
+- **Slots UTC fijos de 300 s, solo cerrados.** Los radares no escanean sincronizados. Componer un slot abierto daría un COG que cambia bajo los pies del cliente, y la clave R2 es inmutable.
+- **Se compone con los sitios que haya.** Un radar caído no apaga el mosaico; `contributing` dice quién aportó y con cuánto desfase, y el viewer pinta encima la cobertura real, ausentes incluidos.
+- **Prefijo `mosaic/` propio en R2.** Permite que la reconciliación excluya el prefijo entero si `api/` aún no conoce la tabla, en vez de tratar sus objetos como huérfanos y borrarlos.

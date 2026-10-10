@@ -29,7 +29,11 @@ from app.models import (
 # tabla → columna temporal por la que se filtra el sweep de retención;
 # fijo en el código (no viene del cliente) — mismo rol que KEYED_TABLES
 # en workers/ops/src/index.ts.
-_KEYED_TABLES: dict[str, str] = {"rasters": "vol_time", "wind_grids": "valid_time"}
+_KEYED_TABLES: dict[str, str] = {
+    "rasters": "vol_time",
+    "wind_grids": "valid_time",
+    "mosaic_rasters": "slot_time",
+}
 
 
 @asynccontextmanager
@@ -133,7 +137,10 @@ def sweep_expired_r2_keys(cutoff: str) -> ExpiredR2Keys:
             ).fetchall()
         ]
     return ExpiredR2Keys(
-        rasters=keyed["rasters"], wind_grids=keyed["wind_grids"], lightning_buckets=lightning
+        rasters=keyed["rasters"],
+        wind_grids=keyed["wind_grids"],
+        lightning_buckets=lightning,
+        mosaic_rasters=keyed["mosaic_rasters"],
     )
 
 
@@ -150,6 +157,7 @@ def sweep_purge(body: PurgeRequest) -> PurgeResult:
             ("lightning_buckets", "bucket_start"),
             ("phenomena", "vol_time"),
             ("vwp", "vol_time"),
+            ("mosaic_rasters", "slot_time"),
         ):
             cur = conn.execute(f"DELETE FROM {table} WHERE {time_col} < %s", [cutoff])
             counts[table] = cur.rowcount
@@ -166,7 +174,7 @@ def reconcile_keys() -> ReconcileKeys:
                     f"SELECT r2_key FROM {table} WHERE r2_key IS NOT NULL"
                 ).fetchall()
             ]
-            for table in ("rasters", "wind_grids", "lightning_buckets")
+            for table in ("rasters", "wind_grids", "lightning_buckets", "mosaic_rasters")
         }
     return ReconcileKeys(**out)
 

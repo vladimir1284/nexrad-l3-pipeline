@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-KeyedTable = Literal["rasters", "wind_grids", "lightning_buckets"]
+KeyedTable = Literal["rasters", "wind_grids", "lightning_buckets", "mosaic_rasters"]
 
 
 class RasterCheck(BaseModel):
@@ -36,6 +36,7 @@ class ExpiredR2Keys(BaseModel):
     rasters: list[str]
     wind_grids: list[str]
     lightning_buckets: list[str]
+    mosaic_rasters: list[str] = []
 
 
 class PurgeRequest(BaseModel):
@@ -48,12 +49,14 @@ class PurgeResult(BaseModel):
     lightning_buckets: int
     phenomena: int
     vwp: int
+    mosaic_rasters: int = 0
 
 
 class ReconcileKeys(BaseModel):
     rasters: list[str]
     wind_grids: list[str]
     lightning_buckets: list[str]
+    mosaic_rasters: list[str] = []
 
 
 class DeleteDanglingRequest(BaseModel):

@@ -37,6 +37,7 @@ nav:
   - Arquitectura: arquitectura.md
   - Decisiones de diseño: decisiones.md
   - Productos: productos.md
+  - Mosaico multi-radar: mosaico.md
   - Plan de implementación: plan-implementacion.md
   - Validaciones manuales: validaciones.md
   - Operación del stack: operacion.md
