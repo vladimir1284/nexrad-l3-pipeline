@@ -23,7 +23,7 @@ class Contribution:
 
     site_id: str
     vol_time: datetime
-    lag_s: int  # vol_time - centro del slot; negativo = el volumen va por delante
+    lag_s: int  # vol_time - centro del slot; negativo = volumen anterior al centro
 
     def as_json(self) -> dict:
         return {
