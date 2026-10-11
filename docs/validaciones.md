@@ -109,3 +109,32 @@ Pre-validado en local 2026-07-19 (D1/R2 locales de wrangler + GLM vivo): 5 cubos
 4. Tail de una corrida sin cubos nuevos: sin escrituras (idempotencia).
 5. Puerta del experto (tipo M4): tormenta activa visible en el raster de un sitio produce cubos con `strike_count > 0` en la misma zona/hora del volumen.
 6. Monitor: al primer cubo ingerido, 🩺 con claves `SITE:ltg` en Telegram; parar el Worker > 30 min debe dar 🔴 y reanudarlo 🟢.
+
+## Mosaico multi-radar — puerta de experto (P6, 2026-10-11)
+
+Sin acceso directo a QGIS ni a la BBDD en esta puerta: validación hecha bajando los
+GeoTIFF reales de producción (mosaico GULF/N0B + los 3 crudos de sitio que aportaron:
+AMX/BYX/HDC, `slot_time=2026-10-11T13:15:00`) desde las URLs públicas de R2 y
+comparando pixel a pixel con Python efímero (`uv run --with tifffile --with numpy
+--with pyproj`) en vez de con el ojo en QGIS. Detalle completo del lado del viewer en
+`docs/decisiones.md` (D47) de `lamula-webviewer`.
+
+1. ✅ Calibración: el COG del compuesto decodifica igual que el de sitio único
+   (`nivel·0.5 − 33`, nivel < 2 = nodata/range-folded) — confirmado contra los tags
+   `SCALE`/`OFFSET` embebidos, mismo contrato.
+2. ✅ Zona exclusiva (un solo radar aportando, reproyección AEQD elipsoidal exacta,
+   no esférica — la aproximación esférica a mano daba varios dBZ de sesgo falso):
+   AMX y HDC igualan su crudo casi exacto (std < 1.6 dBZ).
+3. ✅ Invariante de promedio ponderado: en zona de solape (2+ radares, n=14737
+   píxeles) el mosaico cae dentro de `[min,max]` de los crudos en 99.3% de los casos
+   (±1 dBZ) y 100% con ±8 dBZ; correlación 0.957 contra el promedio simple de los
+   crudos — descarta bug de normalización de pesos o de signo en `q = exp(−(h/h_ref)²)
+   · exp(−(r/r_ref)²)`.
+4. BYX mostró sesgo mayor y creciente con la intensidad, acotado a un puñado de
+   píxeles puntuales — coincide con tener el `lag_s` más grande de los 3
+   contribuyentes de este episodio (+44 s), compatible con movimiento de la celda
+   entre el barrido de BYX y el slot compuesto, no con un bug de peso. Si se repite
+   en otro episodio con otro par de radares, revisar.
+5. ✅ **Puerta del experto**: `MOSAIC_H_REF_M=4000` / `MOSAIC_R_REF_M=200000`
+   confirmados sin recalibrar con esta evidencia. Plan de mosaico multi-radar
+   (P3-P6, ver `lamula-webviewer`) cerrado.

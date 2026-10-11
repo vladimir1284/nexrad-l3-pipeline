@@ -64,7 +64,8 @@ elevación: el término de altura desaparece y queda la calidad por rango.
 
 `h_ref` y `r_ref` son **los dos números que calibra el experto**. Van por
 variable de entorno precisamente para que ajustarlos no exija reconstruir la
-imagen.
+imagen. **Confirmados sin recalibrar en la puerta de experto P6 (2026-10-11)**
+contra un episodio real (GULF, AMX+BYX+HDC) — ver `docs/validaciones.md`.
 
 ### Dos reglas
 
