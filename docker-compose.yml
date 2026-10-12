@@ -1,9 +1,15 @@
-# Stack para Docker Swarm (nodo único). Deploy:
+# Stack para Docker Swarm (nodo único).
 #
-#   set -a; source .env; set +a          # variables no-secretas
-#   docker stack config -c docker-compose.yml | docker stack deploy -c - nexrad
+# Deploy canónico: Portainer, stack `nexrad`, "Pull and redeploy" (re-clona el
+# repo e interpola los ${VARS} del formulario del stack UNA vez).
 #
-# (docker stack deploy no interpola ${VARS}; docker stack config sí.)
+# AVISO sobre el camino por CLI: `docker stack config -c docker-compose.yml |
+# docker stack deploy -c - nexrad` interpola DOS veces. `config` ya resuelve el
+# escape `$$` a `$`, así que el segundo paso vuelve a interpolar y rompe los
+# `$$(cat /run/secrets/...)` del entrypoint de `viewer`. Si tienes que usar la
+# CLI, pasa el fichero directo (`docker stack deploy -c docker-compose.yml
+# nexrad`) con las variables exportadas en la shell (`set -a; source .env;
+# set +a`) — `stack deploy` no lee .env del directorio.
 #
 # Secrets (una vez):
 #   printf '%s' "$R2_ACCESS_KEY_ID"          | docker secret create nexrad_r2_access_key_id -
@@ -12,6 +18,16 @@
 #   printf '%s' "$NEXRAD_API_TOKEN_OPS"      | docker secret create nexrad_api_token_ops_v2 -
 #   printf '%s' "$BETTERSTACK_SOURCE_TOKEN"  | docker secret create nexrad_betterstack_source_token -
 #   printf '%s' "$NEXRAD_VIEWER_PG_PASSWORD" | docker secret create nexrad_viewer_pg_password -
+#   printf '%s' "$NUXT_ADMIN_TOKEN"          | docker secret create nexrad_viewer_admin_token -
+#   printf '%s' "$NUXT_TURNSTILE_SECRET"     | docker secret create nexrad_viewer_turnstile_secret -
+#
+# OJO: estas variables deben estar exportadas EN LA MISMA SHELL que corre
+# `docker secret create`. Si no lo están, `printf` escribe cero bytes y el
+# secret se crea vacío SIN error — el servicio arranca y falla luego en la
+# autenticación. Definirlas en el formulario del stack de Portainer no sirve
+# para esto: ese formulario solo rellena los ${...} de este fichero.
+#
+# `BETTERSTACK_SOURCE_TOKEN` no existe en .env, que define `BETTERSTACK_TOKEN`.
 #
 # Postgres NO vive en este stack: es el Postgres compartido que ya corre
 # en otro stack del mismo Swarm (servicio `postgres`, red externa
@@ -80,25 +96,45 @@ services:
         - "traefik.docker.network=traefik-public"
 
   viewer:
-    # lamula-webviewer: SSR Nuxt, habla Postgres directo (rol read-only
-    # nexrad_viewer, ver runbook de migración) — no pasa por `api`. La
-    # imagen no soporta convención *_FILE de secrets (a diferencia de
-    # ingest/api), así que el entrypoint exporta la password leyéndola
-    # del secret montado antes de arrancar el server.
+    # lamula-webviewer: SSR Nuxt, habla Postgres directo (rol nexrad_viewer,
+    # ver runbook de migración) — no pasa por `api`. Ese rol tiene además
+    # INSERT/UPDATE sobre el schema `viewer`: el viewer es el ÚNICO escritor
+    # del feedback, y lamula-process le postea cross-origin a /api/feedback
+    # en vez de tocar Postgres (de ahí NUXT_CORS_ORIGINS, que no es opcional).
+    #
+    # La imagen no soporta la convención *_FILE de secrets (a diferencia de
+    # ingest/api), así que el entrypoint exporta cada secret leyéndolo del
+    # fichero montado antes de arrancar el server. Todo lo que NO es secreto
+    # va por `environment:`; recordar que una variable del formulario del
+    # stack solo llega al contenedor si está nombrada aquí con ${...}.
     image: ghcr.io/vladimir1284/lamula-webviewer:${IMAGE_TAG:-latest}
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - export NUXT_PG_PASSWORD="$$(cat /run/secrets/nexrad_viewer_pg_password)" && exec node .output/server/index.mjs
+      - |
+        export NUXT_PG_PASSWORD="$$(cat /run/secrets/nexrad_viewer_pg_password)"
+        export NUXT_ADMIN_TOKEN="$$(cat /run/secrets/nexrad_viewer_admin_token)"
+        export NUXT_TURNSTILE_SECRET="$$(cat /run/secrets/nexrad_viewer_turnstile_secret)"
+        exec node .output/server/index.mjs
     environment:
       NUXT_PG_HOST: postgres
       NUXT_PG_DATABASE: ${PG_DB:-nexrad_l3}
       NUXT_PG_USER: nexrad_viewer
+      # Site key de Turnstile: pública por diseño, no es secreto.
+      NUXT_PUBLIC_TURNSTILE_SITE_KEY: ${NUXT_PUBLIC_TURNSTILE_SITE_KEY}
+      # Orígenes permitidos en /api/feedback**: sin esto el feedback que
+      # manda lamula-process muere en el preflight CORS del navegador.
+      NUXT_CORS_ORIGINS: ${NUXT_CORS_ORIGINS}
+      # Origen canónico de los hreflang/canonical: nuxt.config.ts no puede
+      # fijarlo (se evalúa en build), así que se inyecta en arranque.
+      NUXT_PUBLIC_I18N_BASE_URL: ${NUXT_PUBLIC_I18N_BASE_URL:-https://webviewer.ladetec.com}
     networks:
       - default
       - postgres-public
       - traefik-public
     secrets:
       - nexrad_viewer_pg_password
+      - nexrad_viewer_admin_token
+      - nexrad_viewer_turnstile_secret
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -359,6 +395,10 @@ secrets:
   nexrad_api_token_ops_v2:
     external: true
   nexrad_viewer_pg_password:
+    external: true
+  nexrad_viewer_admin_token:
+    external: true
+  nexrad_viewer_turnstile_secret:
     external: true
   nexrad_betterstack_source_token:
     external: true
