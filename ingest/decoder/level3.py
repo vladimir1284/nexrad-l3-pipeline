@@ -26,7 +26,11 @@ IN_100TH_TO_MM = 0.254  # centésima de pulgada → mm
 
 
 class UnsupportedProductError(Exception):
-    """Producto sin ProductSpec registrado o sin paquete radial digital."""
+    """Producto sin ProductSpec registrado."""
+
+
+class NoDataError(Exception):
+    """Producto soportado pero sin datos o sin paquete radial digital en este volumen."""
 
 
 @dataclass(frozen=True)
@@ -155,9 +159,13 @@ def decode_file(path: str | Path) -> RadialProduct:
     if spec is None:
         raise UnsupportedProductError(f"producto {code} sin spec registrado")
 
-    packet = f.sym_block[0][0]
+    sym = getattr(f, "sym_block", None)
+    if not sym or not sym[0]:
+        raise NoDataError(f"producto {code} sin paquete radial digital")
+
+    packet = sym[0][0]
     if not isinstance(packet, dict) or "data" not in packet or "start_az" not in packet:
-        raise UnsupportedProductError(f"producto {code} sin paquete radial digital")
+        raise NoDataError(f"producto {code} sin paquete radial digital")
 
     raw = np.asarray(packet["data"], dtype=np.uint8)
     levels, scale, offset = _CALIBRATIONS[spec.calibration](f, raw)

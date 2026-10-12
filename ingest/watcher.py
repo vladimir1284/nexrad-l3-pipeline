@@ -23,7 +23,7 @@ from threading import Event
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from ingest.decoder.level3 import RadialProduct, UnsupportedProductError, decode_file
+from ingest.decoder.level3 import NoDataError, RadialProduct, UnsupportedProductError, decode_file
 from ingest.gridding.aeqd import AeqdGrid, grid_radial
 from ingest.gridding.cog import write_cog
 from ingest.phenomena.parse import PhenomenaProduct, parse_file
@@ -112,12 +112,15 @@ class ProductProcessor:
     def process(self, raw: Path) -> None:
         t0 = time.monotonic()
         try:
-            dest = self._process_raster(decode_file(raw))
-        except UnsupportedProductError:
             try:
-                dest = self._process_phenomena(parse_file(raw))
+                dest = self._process_raster(decode_file(raw))
             except UnsupportedProductError:
-                dest = self._process_vwp(parse_vwp_file(raw))
+                try:
+                    dest = self._process_phenomena(parse_file(raw))
+                except UnsupportedProductError:
+                    dest = self._process_vwp(parse_vwp_file(raw))
+        except NoDataError as exc:
+            dest = f"sin datos ({exc})"
         log.info("%s → %s (%.2f s)", raw.name, dest, time.monotonic() - t0)
 
 

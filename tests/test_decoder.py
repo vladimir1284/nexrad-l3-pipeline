@@ -1,9 +1,10 @@
 import hashlib
 from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ingest.decoder.level3 import decode_file
+from ingest.decoder.level3 import NoDataError, decode_file
 from tests.conftest import DATA_DIR
 
 # Goldens capturados con MetPy 1.7.x sobre muestras reales del bucket.
@@ -151,3 +152,22 @@ def test_fisica_plausible_por_producto():
         fis = float(datos.max()) * p.scale + p.offset
         lo, hi = rangos[p.spec.mnemonic]
         assert lo <= fis <= hi, f"{g[0]}: {fis} fuera de [{lo},{hi}]"
+
+
+def test_decode_file_sin_paquete_radial_lanza_nodataerror():
+    mock_f = MagicMock()
+    mock_f.prod_desc.prod_code = 172  # DTA
+    mock_f.sym_block = []  # bloque simbología vacío
+
+    with (
+        patch("ingest.decoder.level3.Level3File", return_value=mock_f),
+        pytest.raises(NoDataError, match="producto 172 sin paquete radial digital"),
+    ):
+        decode_file("dummy_path")
+
+    mock_f.sym_block = [[{"type": "Text"}]]  # bloque sin paquete radial
+    with (
+        patch("ingest.decoder.level3.Level3File", return_value=mock_f),
+        pytest.raises(NoDataError, match="producto 172 sin paquete radial digital"),
+    ):
+        decode_file("dummy_path")
