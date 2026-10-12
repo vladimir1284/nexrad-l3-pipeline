@@ -2,9 +2,11 @@ import shutil
 import threading
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from ingest.decoder.level3 import NoDataError
 from ingest.storage.publish import PublishResult
 from ingest.watcher import ProductProcessor, run_watcher
 
@@ -146,3 +148,17 @@ def test_watcher_vivo_procesa_escritura_atomica(input_dir, tmp_path):
 def test_processor_sin_publisher_ni_output_dir_falla():
     with pytest.raises(ValueError):
         ProductProcessor()
+
+
+def test_producto_sin_datos_se_borra_y_no_va_a_failed(input_dir, tmp_path):
+    empty_prod = input_dir / "HDC_DTA_2026_10_12_11_59_06"
+    empty_prod.write_bytes(b"dummy dta header without radial packet")
+
+    err = NoDataError("producto 172 sin paquete radial digital")
+    with patch("ingest.watcher.decode_file", side_effect=err):
+        stats = run_watcher(input_dir, ProductProcessor(output_dir=tmp_path / "cogs"), once=True)
+
+    assert stats.processed == 1
+    assert stats.failed == 0
+    assert not empty_prod.exists()
+    assert not (input_dir / "failed" / empty_prod.name).exists()

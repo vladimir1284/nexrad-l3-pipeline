@@ -16,12 +16,15 @@ from ingest.logging_setup import configure_logging
 
 def _cmd_process(args: argparse.Namespace) -> int:
     # Import diferido: MetPy/Rasterio tardan ~1-2 s y no hacen falta para --help.
-    from ingest.decoder.level3 import UnsupportedProductError, decode_file
+    from ingest.decoder.level3 import NoDataError, UnsupportedProductError, decode_file
     from ingest.gridding.aeqd import grid_radial
     from ingest.gridding.cog import write_cog
 
     try:
         prod = decode_file(args.file)
+    except NoDataError as exc:
+        print(f"l3proc: {args.file}: {exc}", file=sys.stderr)
+        return 0
     except UnsupportedProductError as exc:
         print(f"l3proc: {args.file}: {exc}", file=sys.stderr)
         return 2
