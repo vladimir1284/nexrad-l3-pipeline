@@ -20,6 +20,7 @@
 #   printf '%s' "$NEXRAD_VIEWER_PG_PASSWORD" | docker secret create nexrad_viewer_pg_password -
 #   printf '%s' "$NUXT_ADMIN_TOKEN"          | docker secret create nexrad_viewer_admin_token -
 #   printf '%s' "$NUXT_TURNSTILE_SECRET"     | docker secret create nexrad_viewer_turnstile_secret -
+#   printf '%s' "$NUXT_BETTERSTACK_TOKEN"    | docker secret create nexrad_viewer_betterstack_token -
 #
 # OJO: estas variables deben estar exportadas EN LA MISMA SHELL que corre
 # `docker secret create`. Si no lo están, `printf` escribe cero bytes y el
@@ -28,6 +29,13 @@
 # para esto: ese formulario solo rellena los ${...} de este fichero.
 #
 # `BETTERSTACK_SOURCE_TOKEN` no existe en .env, que define `BETTERSTACK_TOKEN`.
+#
+# `nexrad_viewer_betterstack_token` es un source de Better Stack DISTINTO al
+# `nexrad_betterstack_source_token` de arriba (ese es de poller/processor/
+# wind/lightning) — separado a propósito para no mezclar logs del viewer con
+# los del ingest Python. Mismo endpoint de cuenta
+# (`s2794072.us-west-2a.betterstackdata.com`, ver `NUXT_BETTERSTACK_ENDPOINT`
+# abajo), token de fuente propio.
 #
 # Postgres NO vive en este stack: es el Postgres compartido que ya corre
 # en otro stack del mismo Swarm (servicio `postgres`, red externa
@@ -114,6 +122,7 @@ services:
         export NUXT_PG_PASSWORD="$$(cat /run/secrets/nexrad_viewer_pg_password)"
         export NUXT_ADMIN_TOKEN="$$(cat /run/secrets/nexrad_viewer_admin_token)"
         export NUXT_TURNSTILE_SECRET="$$(cat /run/secrets/nexrad_viewer_turnstile_secret)"
+        export NUXT_BETTERSTACK_TOKEN="$$(cat /run/secrets/nexrad_viewer_betterstack_token)"
         exec node .output/server/index.mjs
     environment:
       NUXT_PG_HOST: postgres
@@ -127,6 +136,8 @@ services:
       # Origen canónico de los hreflang/canonical: nuxt.config.ts no puede
       # fijarlo (se evalúa en build), así que se inyecta en arranque.
       NUXT_PUBLIC_I18N_BASE_URL: ${NUXT_PUBLIC_I18N_BASE_URL:-https://webviewer.ladetec.com}
+      # Endpoint de ingesta de Better Stack: no es secreto, solo el token lo es.
+      NUXT_BETTERSTACK_ENDPOINT: ${NUXT_BETTERSTACK_ENDPOINT:-https://s2794072.us-west-2a.betterstackdata.com}
     networks:
       - default
       - postgres-public
@@ -135,6 +146,7 @@ services:
       - nexrad_viewer_pg_password
       - nexrad_viewer_admin_token
       - nexrad_viewer_turnstile_secret
+      - nexrad_viewer_betterstack_token
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -401,4 +413,6 @@ secrets:
   nexrad_viewer_turnstile_secret:
     external: true
   nexrad_betterstack_source_token:
+    external: true
+  nexrad_viewer_betterstack_token:
     external: true
