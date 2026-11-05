@@ -13,7 +13,7 @@ from pathlib import Path
 
 from metpy.io import Level3File
 
-from ingest.decoder.level3 import UnsupportedProductError
+from ingest.decoder.level3 import UnsupportedProductError, antenna_height_m
 
 VWP_CODE = 48
 VWP_MNEMONIC = "NVW"
@@ -68,7 +68,7 @@ def parse_vwp_file(path: str | Path) -> VwpProduct:
         site_id=f.siteID,
         lat=f.lat,
         lon=f.lon,
-        height_m=float(f.height),
+        height_m=antenna_height_m(f),
         vol_time=f.metadata["vol_time"],
         levels=levels,
     )

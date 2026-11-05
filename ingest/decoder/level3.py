@@ -24,6 +24,18 @@ FLAG_LEVELS = 2  # los niveles físicos empiezan en 2
 
 IN_100TH_TO_MM = 0.254  # centésima de pulgada → mm
 
+# El PDB da la altura de la antena en PIES sobre el nivel del mar (ICD
+# 2620001, halfword 6) y MetPy entrega ese entero sin convertir. La
+# conversión es obligatoria, no cosmética: `height_m` alimenta
+# `beam_height_m()` del mosaico, que la suma en metros a la altura del
+# haz (un radar de montaña como JUA se iba 2 km arriba).
+FT_TO_M = 0.3048
+
+
+def antenna_height_m(f: Level3File) -> float:
+    """Altura de antena en metros desde el PDB (nativo en pies)."""
+    return float(f.height) * FT_TO_M
+
 
 class UnsupportedProductError(Exception):
     """Producto sin ProductSpec registrado."""
@@ -174,7 +186,7 @@ def decode_file(path: str | Path) -> RadialProduct:
         site_id=f.siteID,
         lat=f.lat,
         lon=f.lon,
-        height_m=float(f.height),
+        height_m=antenna_height_m(f),
         spec=spec,
         vcp=f.prod_desc.vcp,
         el_angle=float(f.metadata["el_angle"]) if spec.has_elevation else None,

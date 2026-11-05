@@ -57,6 +57,11 @@ q = exp(−(h/h_ref)²) · exp(−(r/r_ref)²)
 ```
 
 `k = 4/3` es el radio terrestre efectivo que absorbe la refracción estándar.
+`h_antena` sale de `radars.height_m`, **en metros**: el PDB del Level III la
+da en pies (ICD 2620001) y el pipeline convierte al decodificar. Hasta el
+2026-11-05 no convertía, así que la altura entraba en pies a una fórmula en
+metros — invisible en un radar costero (178 m de más) y de kilómetros en uno
+de montaña, que es donde hundía el peso de calidad de todo su dominio.
 `h` sale sobre el nivel del mar y se usa como proxy de altura sobre el
 terreno: válido en dominio costero o llano, no en terreno complejo (ahí
 habría que restar un DEM). Los derivados de volumen (EET, DVL) no tienen

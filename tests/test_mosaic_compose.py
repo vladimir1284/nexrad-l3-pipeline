@@ -238,8 +238,13 @@ def test_el_solape_existe_y_los_dos_metodos_no_coinciden_ahi(amx):
 
 
 # (método, sha16, nonzero, max_level, argmax)
+# `weighted` recapturado al arreglar la altura de antena (venía en pies
+# etiquetada como metros): la altura entra en `beam_height_m`, que pesa la
+# calidad, así que el promedio cambia en el solape. `lowest_beam` no se
+# movió — los dos sitios sintéticos comparten antena, y el orden de alturas
+# es el mismo con pies que con metros.
 GOLDEN = [
-    ("weighted", "ec1b99e26a5f04f5", 22342, 184, (391, 308)),
+    ("weighted", "51714254c42d402a", 22342, 184, (391, 308)),
     ("lowest_beam", "a40c14ff0cdabe62", 22342, 184, (391, 308)),
 ]
 
