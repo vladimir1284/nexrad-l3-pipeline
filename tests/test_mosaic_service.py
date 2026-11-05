@@ -303,3 +303,17 @@ def test_lowest_beam_da_otro_resultado_que_weighted(mundo):
         m2.open() as d2,
     ):
         assert not np.array_equal(d1.read(1), d2.read(1))
+
+
+def test_prefijo_de_instancia_en_la_clave_del_mosaico(mundo):
+    """Con `R2_KEY_PREFIX`, el COG compuesto va al prefijo y la fila lo sabe.
+
+    El discriminante `mosaic/` del sweep sigue existiendo, pero detrás
+    del prefijo — ver `keyPrefix()` en workers/ops/src/index.ts.
+    """
+    pg, r2 = mundo
+    MosaicComposer(pg, r2, _config(), key_prefix="jobs/42/").run_once(now=NOW)
+
+    (fila,) = pg.rows("mosaic_rasters")
+    assert fila["r2_key"].startswith("jobs/42/mosaic/GULF/N0B/")
+    assert fila["r2_key"] in r2.objects

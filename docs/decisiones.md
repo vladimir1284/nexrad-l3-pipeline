@@ -43,4 +43,4 @@ Decisiones cerradas. No re-litigar sin motivo nuevo.
 - **Geometría guardada por fila, además de por dominio.** Añadir un radar a un dominio recalcula su malla; sin la geometría en la fila, el viewer pintaría los COG viejos desplazados.
 - **Slots UTC fijos de 300 s, solo cerrados.** Los radares no escanean sincronizados. Componer un slot abierto daría un COG que cambia bajo los pies del cliente, y la clave R2 es inmutable.
 - **Se compone con los sitios que haya.** Un radar caído no apaga el mosaico; `contributing` dice quién aportó y con cuánto desfase, y el viewer pinta encima la cobertura real, ausentes incluidos.
-- **Prefijo `mosaic/` propio en R2.** Permite que la reconciliación excluya el prefijo entero si `api/` aún no conoce la tabla, en vez de tratar sus objetos como huérfanos y borrarlos.
+- **Prefijo `mosaic/` propio en R2.** Permite que la reconciliación excluya el prefijo entero si `api/` aún no conoce la tabla, en vez de tratar sus objetos como huérfanos y borrarlos. Con `R2_KEY_PREFIX` el discriminante es `{prefijo}mosaic/`, compuesto igual a los dos lados (pipeline y Worker `ops`).

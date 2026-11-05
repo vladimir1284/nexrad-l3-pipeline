@@ -48,6 +48,11 @@ export interface Env {
   WINDOW_HOURS: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
+  // Prefijo de clave R2 de la instancia vigilada (R2_KEY_PREFIX del
+  // pipeline). Vacío/ausente = bucket entero, como hasta ahora. Tiene
+  // que coincidir con el del stack: si no, la reconciliación ve como
+  // huérfanos los objetos de la otra instancia y los borra.
+  R2_KEY_PREFIX?: string;
 }
 
 const MONITOR_CRON = "*/5 * * * *";
@@ -56,6 +61,13 @@ const RECONCILE_GRACE_MS = 3_600_000; // 1 h: no tocar objetos R2 recién subido
 
 function parseUtc(volTime: string): number {
   return Date.parse(volTime + "Z");
+}
+
+/** `""` | `"jobs/42"` | `"/jobs/42/"` → `""` | `"jobs/42/"` (misma
+ * normalización que `ingest/storage/keys.py::normalize_prefix`). */
+function keyPrefix(env: Env): string {
+  const cleaned = (env.R2_KEY_PREFIX ?? "").trim().replace(/^\/+|\/+$/g, "");
+  return cleaned ? `${cleaned}/` : "";
 }
 
 // ------------------------------------------------------------------- API
@@ -168,7 +180,7 @@ async function checkRaster(env: Env, site: string, maxAgeMin: number): Promise<C
     return { key: site, fresh: true, reason: `ok (${Math.round(ageMin)} min)` };
   } catch (exc) {
     console.error(`monitor: API inalcanzable para checkRaster(${site}), cayendo a R2:`, exc);
-    return fallbackByRecentUpload(env, site, `${site}/N0B/`, maxAgeMin);
+    return fallbackByRecentUpload(env, site, `${keyPrefix(env)}${site}/N0B/`, maxAgeMin);
   }
 }
 
@@ -199,7 +211,7 @@ async function checkWind(env: Env, site: string, minLeadH: number): Promise<Chec
     return { key, fresh: true, reason: `ok (cobertura +${leadH.toFixed(1)} h)` };
   } catch (exc) {
     console.error(`monitor: API inalcanzable para checkWind(${site}), cayendo a R2:`, exc);
-    return fallbackByRecentUpload(env, key, `${site}/WIND/`, minLeadH * 60);
+    return fallbackByRecentUpload(env, key, `${keyPrefix(env)}${site}/WIND/`, minLeadH * 60);
   }
 }
 
@@ -222,7 +234,7 @@ async function checkLightning(env: Env, site: string, maxAgeMin: number): Promis
     return { key, fresh: true, reason: `ok (${Math.round(ageMin)} min)` };
   } catch (exc) {
     console.error(`monitor: API inalcanzable para checkLightning(${site}), cayendo a R2:`, exc);
-    return fallbackByRecentUpload(env, key, `${site}/LIGHTNING/`, maxAgeMin);
+    return fallbackByRecentUpload(env, key, `${keyPrefix(env)}${site}/LIGHTNING/`, maxAgeMin);
   }
 }
 
@@ -413,10 +425,15 @@ interface ReconcileKeys {
  * publish). */
 async function reconcile(env: Env): Promise<void> {
   const graceCutoff = Date.now() - RECONCILE_GRACE_MS;
+  // Barrido acotado al prefijo de esta instancia: con varias instancias
+  // compartiendo bucket (R2_KEY_PREFIX), lo que hay fuera del prefijo es
+  // de otra y nunca está en nuestra Postgres — listarlo sería declararlo
+  // huérfano y borrárselo. Prefijo vacío = bucket entero, como siempre.
+  const prefix = keyPrefix(env);
   const inR2 = new Set<string>();
   let cursor: string | undefined;
   do {
-    const page = await env.BUCKET.list({ cursor, limit: 1000 });
+    const page = await env.BUCKET.list({ prefix, cursor, limit: 1000 });
     for (const obj of page.objects) {
       if (obj.uploaded.getTime() < graceCutoff) inR2.add(obj.key);
     }
@@ -441,11 +458,13 @@ async function reconcile(env: Env): Promise<void> {
   // lleva prefijo propio: sin la lista, el prefijo entero queda fuera del
   // barrido en vez de borrarse.
   const mosaicKnown = keys.mosaic_rasters !== undefined;
+  const mosaicPrefix = `${prefix}mosaic/`;
   const orphans = [...inR2]
     .filter((k) => !inDb.has(k))
-    .filter((k) => mosaicKnown || !k.startsWith("mosaic/"))
+    .filter((k) => mosaicKnown || !k.startsWith(mosaicPrefix))
     .sort();
-  if (!mosaicKnown) console.warn("reconcile: api/ sin mosaic_rasters — prefijo mosaic/ excluido del barrido");
+  if (!mosaicKnown)
+    console.warn(`reconcile: api/ sin mosaic_rasters — prefijo ${mosaicPrefix} excluido del barrido`);
   const dangling = [...inDb.keys()].filter((k) => !inR2.has(k)).sort();
   // Filas más recientes que la gracia pueden apuntar a objetos aún no
   // listados arriba — verificar contra el bucket antes de declararlas

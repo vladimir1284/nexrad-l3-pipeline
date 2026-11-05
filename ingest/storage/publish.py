@@ -71,9 +71,10 @@ def publish_cog(
     grid: AeqdGrid,
     r2: R2Client,
     pg: PgClient,
+    key_prefix: str = "",
 ) -> PublishResult:
     cog_path = Path(cog_path)
-    key = raster_key(prod.site_id, prod.spec.mnemonic, prod.vol_time)
+    key = raster_key(prod.site_id, prod.spec.mnemonic, prod.vol_time, key_prefix)
     size = cog_path.stat().st_size
     now = utcnow_iso()
     vol_iso = prod.vol_time.isoformat(timespec="seconds")

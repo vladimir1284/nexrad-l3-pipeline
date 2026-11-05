@@ -171,3 +171,36 @@ def test_decode_file_sin_paquete_radial_lanza_nodataerror():
         pytest.raises(NoDataError, match="producto 172 sin paquete radial digital"),
     ):
         decode_file("dummy_path")
+
+
+# Altura de antena: el PDB la da en PIES (ICD 2620001) y MetPy devuelve el
+# entero crudo. Dos sitios a propósito — con uno costero solo, confundir
+# pies con metros son ~78 m de error y pasa desapercibido; en un sitio
+# elevado como JUA (Puerto Rico, antena a 2958 ft) son 2 km, que es lo que
+# el mosaico suma a la altura del haz.
+ALTURAS = [
+    ("AMX_N0B_2026_07_06_15_45_17", 111, 33.83),  # costero (Miami)
+    ("JUA_N0B_2026_07_06_15_43_47", 2958, 901.60),  # elevado (Cayey, PR)
+]
+
+
+@pytest.mark.parametrize("fname,pies,metros", ALTURAS, ids=["costero", "elevado"])
+def test_height_m_en_metros(fname, pies, metros):
+    p = decode_file(DATA_DIR / fname)
+
+    assert p.height_m == pytest.approx(metros, abs=0.01)
+    assert p.height_m == pytest.approx(pies * 0.3048, abs=1e-6)
+    # el valor crudo del PDB (pies) ya no es lo que se publica
+    assert p.height_m != pytest.approx(float(pies))
+
+
+def test_height_m_igual_en_los_tres_decodificadores():
+    """raster, fenómenos y VWP escriben la MISMA fila de `radars`."""
+    from ingest.phenomena.parse import parse_file
+    from ingest.phenomena.vwp import parse_vwp_file
+
+    raster = decode_file(DATA_DIR / "AMX_N0B_2026_07_06_15_45_17").height_m
+    php = parse_file(DATA_DIR / "AMX_NST_2026_07_10_04_57_17").height_m
+    vwp = parse_vwp_file(DATA_DIR / "AMX_NVW_2026_07_10_04_57_17").height_m
+
+    assert raster == php == vwp == pytest.approx(33.83, abs=0.01)

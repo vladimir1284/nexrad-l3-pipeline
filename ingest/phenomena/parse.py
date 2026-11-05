@@ -31,7 +31,7 @@ import numpy as np
 from metpy.io import Level3File
 from pyproj import Transformer
 
-from ingest.decoder.level3 import UnsupportedProductError
+from ingest.decoder.level3 import UnsupportedProductError, antenna_height_m
 from ingest.gridding.aeqd import radar_proj4
 from ingest.products import PHENOMENA_PRODUCTS
 
@@ -236,7 +236,7 @@ def parse_file(path: str | Path) -> PhenomenaProduct:
         site_id=f.siteID,
         lat=f.lat,
         lon=f.lon,
-        height_m=float(f.height),
+        height_m=antenna_height_m(f),
         code=code,
         mnemonic=mnemonic,
         vol_time=f.metadata["vol_time"],

@@ -60,6 +60,13 @@ base remota `nexrad-l3` el 2026-07-10, migrada a Postgres después).
   su ingesta suba el primer objeto (a `KEYED_TABLES` si su `r2_key` es
   NOT NULL; como `lightning_buckets` — sweep por columna temporal,
   reconciliación vía `R2_KEY_TABLES` — si admite NULL).
+- **`R2_KEY_PREFIX` tiene que valer lo mismo aquí y en el stack.** Es
+  el prefijo de clave de la instancia vigilada (vacío en producción).
+  El Worker acota a ese prefijo el LIST de la reconciliación y la señal
+  R2-only del modo degradado, y compone con él el discriminante del
+  mosaico (`{prefijo}mosaic/`). Si el Worker se queda con el prefijo
+  vacío y el stack no, la reconciliación ve los objetos de la otra
+  instancia como huérfanos y **los borra**.
 - **El monitor vigila tres capas por sitio**: rasters (clave =
   sitio pelado en `ops_monitor_state`), viento (`SITE:wind`, fresco =
   cobertura ≥ `WIND_MIN_LEAD_H` horas por delante) y rayos (`SITE:ltg`,

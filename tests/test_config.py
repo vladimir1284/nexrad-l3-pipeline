@@ -74,3 +74,13 @@ def test_storage_config_repr_no_filtra_secretos(monkeypatch):
     assert cfg.r2_secret_access_key not in r
     assert cfg.pg_password not in r
     assert cfg.r2_bucket in r
+
+
+def test_r2_key_prefix_opcional_y_normalizado(monkeypatch):
+    for k, v in ALL_VARS.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("R2_KEY_PREFIX", raising=False)
+    assert StorageConfig.from_env().r2_key_prefix == ""  # producción: claves de siempre
+
+    monkeypatch.setenv("R2_KEY_PREFIX", "/jobs/42/")
+    assert StorageConfig.from_env().r2_key_prefix == "jobs/42/"

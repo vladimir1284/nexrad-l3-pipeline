@@ -87,6 +87,11 @@ npx wrangler tail nexrad-l3-ops
 
 **Configuración**: variables no-secretas (`R2_ENDPOINT`, `R2_BUCKET`, `CLOUDFLARE_ACCOUNT_ID`, `D1_DATABASE_ID`, `NEXRAD_SITES`) en el formulario del stack de Portainer; credenciales como secrets de Swarm (`nexrad_r2_access_key_id`, `nexrad_r2_secret_access_key`, `nexrad_cf_api_token`) montados como fichero vía la convención `*_FILE` de `ingest/config.py`. El Worker lleva su propia config: bindings y vars en `workers/ops/wrangler.jsonc`, Telegram como secrets de Wrangler (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`).
 
+**`R2_KEY_PREFIX` (opcional, vacío en producción)**: antepone un prefijo a todas las claves R2 que escribe la instancia (rasters, mosaico, viento, rayos) para que varias instancias compartan bucket sin pisarse — el caso de LAMULA Jobs, una instancia por job, cada una con su schema de Postgres. Con el valor vacío las claves son exactamente las de siempre. Dos avisos:
+
+- El mismo valor tiene que estar en `R2_KEY_PREFIX` del Worker `ops` (`workers/ops/wrangler.jsonc`). El Worker acota su barrido a ese prefijo; si no coincide, la reconciliación ve los objetos de la otra instancia como huérfanos y **los borra**.
+- Con prefijo vacío el barrido sigue siendo el bucket entero. Antes de meter otra instancia en el bucket hay que darle su prefijo también a producción, no solo a la nueva.
+
 ## Diagnóstico rápido
 
 | Síntoma | Causa probable | Dónde mirar |

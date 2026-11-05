@@ -33,6 +33,8 @@ from typing import Any
 import httpx
 import numpy as np
 
+from ingest.storage.keys import normalize_prefix
+
 log = logging.getLogger(__name__)
 
 GRID_STEP = 0.25  # grados; grilla GFS 0p25
@@ -167,15 +169,23 @@ def candidate_cycles(valid_time: datetime) -> list[tuple[datetime, int]]:
     return out
 
 
-def wind_key(site_id: str, valid_time: datetime, cycle_time: datetime, fh: int, level: str) -> str:
+def wind_key(
+    site_id: str,
+    valid_time: datetime,
+    cycle_time: datetime,
+    fh: int,
+    level: str,
+    prefix: str = "",
+) -> str:
     """{SITE}/WIND/{Y}/{M}/{D}/{SITE}_WIND_{ts}_c{ciclo}f{FFF}_{level}.json (inmutable).
 
     El nivel va en el nombre (no solo en la fila): niveles distintos del
     mismo (site, valid_time, cycle, fh) son objetos R2 distintos.
+    `prefix` es `R2_KEY_PREFIX` (ver `ingest/storage/keys.py`).
     """
     stamp = valid_time.strftime("%Y%m%d_%H%M%S")
     return (
-        f"{site_id}/WIND/{valid_time:%Y/%m/%d}/"
+        f"{normalize_prefix(prefix)}{site_id}/WIND/{valid_time:%Y/%m/%d}/"
         f"{site_id}_WIND_{stamp}_c{cycle_time:%Y%m%d%H}f{fh:03d}_{level}.json"
     )
 
@@ -324,9 +334,11 @@ class WindIngestor:
         window_h: float = 72.0,
         lookahead_h: float = 2.0,
         pause_s: float = 2.0,
+        key_prefix: str = "",
     ) -> None:
         self._pg = pg
         self._r2 = r2
+        self._key_prefix = key_prefix
         self._fetch = fetch or self._fetch_nomads
         self._levels = levels
         self._window = timedelta(hours=window_h)
@@ -489,7 +501,7 @@ class WindIngestor:
         existing: dict[tuple[str, str, str], tuple[str, str]],
     ) -> None:
         body = encode_json(subset(field, box), cycle, fh)
-        key = wind_key(site, vt, cycle, fh, level.name)
+        key = wind_key(site, vt, cycle, fh, level.name, self._key_prefix)
         vt_s, cycle_s = _iso(vt), _iso(cycle)
         ekey = (site, vt_s, level.name)
         old = existing.get(ekey)

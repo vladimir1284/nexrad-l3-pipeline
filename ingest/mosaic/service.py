@@ -138,11 +138,13 @@ class MosaicComposer:
         config: MosaicConfig,
         *,
         workdir: Path | None = None,
+        key_prefix: str = "",
     ) -> None:
         self._pg = pg
         self._r2 = r2
         self._cfg = config
         self._workdir = workdir
+        self._key_prefix = key_prefix
 
     # -- ciclo principal ---------------------------------------------------
 
@@ -318,7 +320,7 @@ class MosaicComposer:
         max_level = int(levels.max())
 
         mnemonic = RASTER_PRODUCTS[product_code].mnemonic
-        key = mosaic_key(grid.domain_id, mnemonic, slot)
+        key = mosaic_key(grid.domain_id, mnemonic, slot, self._key_prefix)
         with tempfile.TemporaryDirectory(dir=self._workdir) as tmp:
             path = Path(tmp) / Path(key).name
             write_mosaic_cog(

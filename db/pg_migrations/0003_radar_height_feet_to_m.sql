@@ -1,0 +1,33 @@
+-- Migration number: 0003    2026-11-05
+-- `radars.height_m` guardaba PIES etiquetados como metros.
+--
+-- El PDB del Level III da la altura de la antena en pies sobre el nivel
+-- del mar (ICD 2620001, halfword 6) y `Level3File.height` de MetPy
+-- devuelve ese entero sin convertir. El pipeline lo asignaba directo a
+-- `height_m`, así que todas las filas escritas antes del arreglo de
+-- `ingest/decoder/level3.py::antenna_height_m` están en pies.
+--
+-- ORDEN DE DESPLIEGUE: aplicar esta migración ANTES de desplegar la
+-- imagen con el arreglo, y dejar el menor hueco posible entre las dos
+-- cosas. Cualquiera de los dos órdenes converge al valor correcto en un
+-- radar que siga publicando, porque el upsert de `publish.py` reescribe
+-- `height_m` en cada producto:
+--   - migración y luego imagen: el código viejo vuelve a escribir pies
+--     en el hueco, y el código nuevo los corrige al desplegar;
+--   - imagen y luego migración: el código nuevo deja metros y esta
+--     sentencia los divide, hasta el siguiente producto del radar.
+-- El único daño permanente, en ambos órdenes, es el de un radar que
+-- escribe dentro del hueco y después deja de emitir: nadie reescribe su
+-- fila. Un radar que ya estaba muerto antes de empezar no corre riesgo
+-- en ningún orden — nadie lo reescribe, así que la migración lo
+-- convierte una vez y queda bien. Ese radar muerto es el motivo de esta
+-- migración: los vivos se auto-curan solos con el deploy.
+--
+-- Se aplica una sola vez: `db/apply_pg_migrations.py` lleva registro en
+-- `schema_migrations`. No hay rollback automático (multiplicar por
+-- 1/0,3048 lo revierte si hiciera falta).
+
+-- Solo datos: la columna ya es REAL y el contrato con el viewer no
+-- cambia de forma, solo deja de mentir en la unidad (ver db/README.md).
+
+UPDATE radars SET height_m = height_m * 0.3048;

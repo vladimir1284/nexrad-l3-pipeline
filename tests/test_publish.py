@@ -93,3 +93,31 @@ def test_publish_es_idempotente(pipeline_amx):
     assert len(pg.execute("SELECT * FROM products")) == 1
     # first_seen_at se conserva; last_seen_at avanza con cada publicación.
     assert pg.execute("SELECT first_seen_at FROM radars")[0]["first_seen_at"] == first_seen
+
+
+def test_publish_con_prefijo_de_instancia(pipeline_amx):
+    """`R2_KEY_PREFIX` tiene que llegar al objeto Y a `rasters.r2_key`.
+
+    Si solo llegara a la subida, el viewer pediría una clave que no
+    existe y la reconciliación borraría el objeto por huérfano.
+    """
+    prod, grid, cog = pipeline_amx
+    r2, pg = FakeR2(), SqlitePg()
+
+    result = publish_cog(cog, prod, grid, r2, pg, "jobs/42/")
+
+    assert result.r2_key == "jobs/42/AMX/N0B/2026/07/06/AMX_N0B_20260706_154517.tif"
+    assert r2.uploads == [(cog, result.r2_key, "image/tiff")]
+    assert pg.execute("SELECT r2_key FROM rasters")[0]["r2_key"] == result.r2_key
+
+
+def test_publish_registra_altura_en_metros(pipeline_amx):
+    """`radars.height_m` en metros: el PDB la trae en pies (ICD 2620001)."""
+    prod, grid, cog = pipeline_amx
+    pg = SqlitePg()
+
+    publish_cog(cog, prod, grid, FakeR2(), pg)
+
+    assert pg.execute("SELECT height_m FROM radars")[0]["height_m"] == pytest.approx(
+        33.83, abs=0.01
+    )
