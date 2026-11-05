@@ -8,12 +8,20 @@
 -- `ingest/decoder/level3.py::antenna_height_m` están en pies.
 --
 -- ORDEN DE DESPLIEGUE: aplicar esta migración ANTES de desplegar la
--- imagen con el arreglo. Al revés, un radar que ya hubiera publicado un
--- producto con el código nuevo tendría su fila correcta (metros) y esta
--- sentencia la dejaría 0,3048 veces más pequeña. Para un radar vivo el
--- daño es transitorio — el siguiente producto reescribe la fila por el
--- upsert de `publish.py` —, pero para un radar que ya no emite es
--- permanente, que es justo el caso para el que existe esta migración.
+-- imagen con el arreglo, y dejar el menor hueco posible entre las dos
+-- cosas. Cualquiera de los dos órdenes converge al valor correcto en un
+-- radar que siga publicando, porque el upsert de `publish.py` reescribe
+-- `height_m` en cada producto:
+--   - migración y luego imagen: el código viejo vuelve a escribir pies
+--     en el hueco, y el código nuevo los corrige al desplegar;
+--   - imagen y luego migración: el código nuevo deja metros y esta
+--     sentencia los divide, hasta el siguiente producto del radar.
+-- El único daño permanente, en ambos órdenes, es el de un radar que
+-- escribe dentro del hueco y después deja de emitir: nadie reescribe su
+-- fila. Un radar que ya estaba muerto antes de empezar no corre riesgo
+-- en ningún orden — nadie lo reescribe, así que la migración lo
+-- convierte una vez y queda bien. Ese radar muerto es el motivo de esta
+-- migración: los vivos se auto-curan solos con el deploy.
 --
 -- Se aplica una sola vez: `db/apply_pg_migrations.py` lleva registro en
 -- `schema_migrations`. No hay rollback automático (multiplicar por
