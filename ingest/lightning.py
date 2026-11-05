@@ -31,6 +31,8 @@ from typing import Any
 import httpx
 import numpy as np
 
+from ingest.storage.keys import normalize_prefix
+
 log = logging.getLogger(__name__)
 
 BUCKET_S = 300  # contrato: cubos fijos alineados a UTC
@@ -96,10 +98,16 @@ def eligible_bucket_starts(now: datetime, window_s: float, margin_s: float) -> l
     return out
 
 
-def lightning_key(site: str, bucket_start: datetime) -> str:
-    """{SITE}/LIGHTNING/{Y}/{M}/{D}/{SITE}_LTG_{YYYYMMDD}_{HHMMSS}.json (inmutable)."""
+def lightning_key(site: str, bucket_start: datetime, prefix: str = "") -> str:
+    """{SITE}/LIGHTNING/{Y}/{M}/{D}/{SITE}_LTG_{YYYYMMDD}_{HHMMSS}.json (inmutable).
+
+    `prefix` es `R2_KEY_PREFIX` (ver `ingest/storage/keys.py`).
+    """
     stamp = bucket_start.strftime("%Y%m%d_%H%M%S")
-    return f"{site}/LIGHTNING/{bucket_start:%Y/%m/%d}/{site}_LTG_{stamp}.json"
+    return (
+        f"{normalize_prefix(prefix)}{site}/LIGHTNING/{bucket_start:%Y/%m/%d}/"
+        f"{site}_LTG_{stamp}.json"
+    )
 
 
 def _day_of_year(dt: datetime) -> int:
@@ -284,9 +292,11 @@ class LightningIngestor:
         margin_s: float = 90.0,
         radius_km: float = 460.0,
         max_buckets: int = 200,
+        key_prefix: str = "",
     ) -> None:
         self._pg = pg
         self._r2 = r2
+        self._key_prefix = key_prefix
         self._base = base_url.rstrip("/")
         self._list_prefix = list_prefix or self._list_prefix_s3
         self._fetch_file = fetch_file or self._fetch_file_s3
@@ -438,7 +448,7 @@ class LightningIngestor:
             r2_key: str | None = None
             size: int | None = None
             if strikes:
-                r2_key = lightning_key(site["site_id"], start)
+                r2_key = lightning_key(site["site_id"], start, self._key_prefix)
                 body = encode_bucket_json(site["site_id"], start, strikes)
                 size = len(body)
                 # orden: R2 → Postgres, igual que el Worker — si Postgres falla, el

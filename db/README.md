@@ -41,6 +41,11 @@ Reglas:
 - Calibración de rasters: `físico = nivel · value_scale + value_offset` para niveles ≥ 2; nivel 0 = below threshold (nodata), 1 = range folded.
 - Diseñado para ser migrable a PostgreSQL (tipos y constraints estándar; `AUTOINCREMENT` → `BIGSERIAL` sería el único cambio mecánico).
 
+## `radars.height_m` y claves R2 (parte del contrato)
+
+- **`radars.height_m` está en metros** sobre el nivel del mar. El PDB del Level III la da en **pies** (ICD 2620001, halfword 6) y `Level3File.height` de MetPy devuelve ese entero crudo; la conversión la hace el pipeline al decodificar (`ingest/decoder/level3.py::antenna_height_m`). Hasta el 2026-11-05 la columna guardaba pies etiquetados como metros: la migración `0003_radar_height_feet_to_m.sql` convierte las filas existentes y hay que **aplicarla antes de desplegar la imagen con el arreglo** (ver su cabecera). Los COG publicados antes conservan el tag `RADAR_HEIGHT_M` en pies; no se reescriben.
+- **`r2_key` incluye el prefijo de instancia** cuando lo hay (`R2_KEY_PREFIX`, vacío en producción): es la clave literal del bucket, el viewer la usa tal cual sin anteponerle nada. Aplica a `rasters`, `mosaic_rasters`, `wind_grids` y `lightning_buckets` por igual, y el discriminante del mosaico pasa a ser `{prefijo}mosaic/`.
+
 ## Claves de `phenomena.attrs` (parte del contrato)
 
 `attrs` es JSON y por tanto extensible sin migración, pero **sus claves son contrato con el viewer** igual que las columnas: renombrar o cambiar unidades de una clave existente se coordina como cualquier cambio incompatible. Referencia cruzada: página "Contrato de datos" de la doc de [lamula-webviewer](https://github.com/vladimir1284/lamula-webviewer).

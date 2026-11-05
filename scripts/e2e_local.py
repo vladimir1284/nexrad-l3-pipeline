@@ -30,13 +30,13 @@ from ingest.storage.keys import raster_key  # noqa: E402
 from ingest.storage.r2 import R2Client  # noqa: E402
 
 
-def key_to_r2_key(bucket_key: str) -> str:
+def key_to_r2_key(bucket_key: str, prefix: str = "") -> str:
     """AMX_N0B_2026_07_06_15_45_17 → clave R2 esperada (vol_time = ts de la clave)."""
     from datetime import datetime
 
     site, mnemo, *ts = bucket_key.split("_")
     vol = datetime(*map(int, ts))
-    return raster_key(site, mnemo, vol)
+    return raster_key(site, mnemo, vol, prefix)
 
 
 def main() -> int:
@@ -99,7 +99,7 @@ def main() -> int:
     r2 = R2Client(cfg.r2_endpoint, cfg.r2_bucket, cfg.r2_access_key_id, cfg.r2_secret_access_key)
     with D1Client(cfg.cf_account_id, cfg.d1_database_id, cfg.cf_api_token) as d1:
         for bucket_key in injected:
-            r2_key = key_to_r2_key(bucket_key)
+            r2_key = key_to_r2_key(bucket_key, cfg.r2_key_prefix)
             meta = r2.head(r2_key)
             if meta is None:
                 failures.append(f"falta en R2: {r2_key}")

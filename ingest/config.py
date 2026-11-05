@@ -8,6 +8,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ingest.storage.keys import normalize_prefix
+
 
 class ConfigError(Exception):
     pass
@@ -39,6 +41,17 @@ def env_optional(name: str, default: str | None = None) -> str | None:
 
 @dataclass(frozen=True)
 class StorageConfig:
+    """Credenciales de R2 + Postgres.
+
+    `r2_key_prefix` (opcional, vacío por defecto) antepone un prefijo a
+    TODAS las claves R2 que escribe esta instancia — rasters, mosaico,
+    viento y rayos. Existe para que varias instancias puedan compartir
+    bucket sin pisarse: LAMULA Jobs levanta una por job, cada una con su
+    schema de Postgres, y sin prefijo dos jobs del mismo radar a la misma
+    hora escriben el mismo objeto (y borrar uno le quita el COG al otro).
+    Vacío = claves idénticas a las de hoy.
+    """
+
     r2_endpoint: str
     r2_bucket: str
     # repr=False: nunca deben aparecer en logs/prints accidentales del objeto.
@@ -49,6 +62,7 @@ class StorageConfig:
     pg_db: str
     pg_user: str
     pg_password: str = field(repr=False)
+    r2_key_prefix: str = ""
 
     @classmethod
     def from_env(cls) -> "StorageConfig":
@@ -62,6 +76,9 @@ class StorageConfig:
             pg_db=_env("PG_DB"),
             pg_user=_env("PG_USER"),
             pg_password=_env("PG_PASSWORD"),
+            # Normalizado aquí (una sola barra final, sin barra inicial)
+            # para que el valor que circula por el proceso sea canónico.
+            r2_key_prefix=normalize_prefix(env_optional("R2_KEY_PREFIX")),
         )
 
     @property

@@ -217,6 +217,10 @@ services:
     environment:
       R2_ENDPOINT: ${R2_ENDPOINT}
       R2_BUCKET: ${R2_BUCKET}
+      # Vacío = claves de siempre. Con valor, aísla las claves de
+      # esta instancia de las de otra que comparta bucket (debe
+      # coincidir con el R2_KEY_PREFIX del Worker ops).
+      R2_KEY_PREFIX: ${R2_KEY_PREFIX:-}
       PG_HOST: postgres
       PG_DB: ${PG_DB:-nexrad_l3}
       PG_USER: ${PG_USER:-nexrad}
@@ -259,6 +263,10 @@ services:
     environment:
       R2_ENDPOINT: ${R2_ENDPOINT}
       R2_BUCKET: ${R2_BUCKET}
+      # Vacío = claves de siempre. Con valor, aísla las claves de
+      # esta instancia de las de otra que comparta bucket (debe
+      # coincidir con el R2_KEY_PREFIX del Worker ops).
+      R2_KEY_PREFIX: ${R2_KEY_PREFIX:-}
       PG_HOST: postgres
       PG_DB: ${PG_DB:-nexrad_l3}
       PG_USER: ${PG_USER:-nexrad}
@@ -296,6 +304,10 @@ services:
     environment:
       R2_ENDPOINT: ${R2_ENDPOINT}
       R2_BUCKET: ${R2_BUCKET}
+      # Vacío = claves de siempre. Con valor, aísla las claves de
+      # esta instancia de las de otra que comparta bucket (debe
+      # coincidir con el R2_KEY_PREFIX del Worker ops).
+      R2_KEY_PREFIX: ${R2_KEY_PREFIX:-}
       PG_HOST: postgres
       PG_DB: ${PG_DB:-nexrad_l3}
       PG_USER: ${PG_USER:-nexrad}
@@ -338,6 +350,10 @@ services:
     environment:
       R2_ENDPOINT: ${R2_ENDPOINT}
       R2_BUCKET: ${R2_BUCKET}
+      # Vacío = claves de siempre. Con valor, aísla las claves de
+      # esta instancia de las de otra que comparta bucket (debe
+      # coincidir con el R2_KEY_PREFIX del Worker ops).
+      R2_KEY_PREFIX: ${R2_KEY_PREFIX:-}
       PG_HOST: postgres
       PG_DB: ${PG_DB:-nexrad_l3}
       PG_USER: ${PG_USER:-nexrad}

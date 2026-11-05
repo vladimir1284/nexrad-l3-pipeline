@@ -52,7 +52,7 @@ def _cmd_process(args: argparse.Namespace) -> int:
             cfg.r2_endpoint, cfg.r2_bucket, cfg.r2_access_key_id, cfg.r2_secret_access_key
         )
         with PgClient(cfg.pg_dsn) as pg:
-            result = publish_cog(out, prod, grid, r2, pg)
+            result = publish_cog(out, prod, grid, r2, pg, cfg.r2_key_prefix)
         print(f"r2://{cfg.r2_bucket}/{result.r2_key} ({result.size_bytes} bytes)")
     return 0
 
@@ -142,6 +142,7 @@ def _cmd_wind(args: argparse.Namespace) -> int:
             window_h=args.window,
             lookahead_h=args.lookahead,
             pause_s=args.pause,
+            key_prefix=cfg.r2_key_prefix,
         )
         if args.once:
             stats = ingestor.run_once()
@@ -178,6 +179,7 @@ def _cmd_lightning(args: argparse.Namespace) -> int:
             margin_s=args.margin,
             radius_km=args.radius_km,
             max_buckets=args.max_buckets,
+            key_prefix=cfg.r2_key_prefix,
         )
         if args.once:
             stats = ingestor.run_once()
@@ -210,7 +212,7 @@ def _cmd_mosaic(args: argparse.Namespace) -> int:
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
     with PgClient(cfg.pg_dsn) as pg:
-        composer = MosaicComposer(pg, r2, mcfg)
+        composer = MosaicComposer(pg, r2, mcfg, key_prefix=cfg.r2_key_prefix)
         if args.once:
             stats = composer.run_once()
             print(

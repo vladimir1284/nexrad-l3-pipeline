@@ -58,7 +58,7 @@ def build_publisher() -> Publishers:
     pg = PgClient(cfg.pg_dsn)
 
     return Publishers(
-        raster=lambda cog, prod, grid: publish_cog(cog, prod, grid, r2, pg),
+        raster=lambda cog, prod, grid: publish_cog(cog, prod, grid, r2, pg, cfg.r2_key_prefix),
         phenomena=lambda php: publish_phenomena(php, pg),
         vwp=lambda vwp: publish_vwp(vwp, pg),
     )
